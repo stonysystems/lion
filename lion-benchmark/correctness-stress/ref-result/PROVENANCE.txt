@@ -1,0 +1,9 @@
+commit: not recorded (batch predates provenance capture; assembled on
+  zoo-002 and zoo-004 across multiple sessions — the jsonl files are
+  multi-session concatenations, per-cell run counts 6-66, not a single
+  REPS=3 ./run.sh artifact)
+hosts: zoo-002 (AMD EPYC 7702P), zoo-004
+verdict consistency: every (runtime, config) cell is verdict-uniform across
+  all sessions (e.g. tokio-1.21/current HANG in every row), matching the
+  matrix in README.md; ref-result-2/ is the clean single-clone replication
+  (commit ede47094) with recorded provenance.

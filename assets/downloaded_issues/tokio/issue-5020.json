@@ -1,0 +1,72 @@
+{
+  "assignees": [
+    {
+      "id": "MDQ6VXNlcjk4NzU2MjI=",
+      "login": "Noah-Kennedy",
+      "name": "Noah Kennedy"
+    }
+  ],
+  "author": {
+    "login": "futursolo"
+  },
+  "body": "**Version**\r\n\r\n`tokio v1.21.1`\r\n\r\n**Platform**\r\n\r\n- aarch64-apple-darwin\r\n- x86_64-apple-darwin\r\n- aarch64-unknown-linux-gnu\r\n- x86_64-unknown-linux-gnu\r\n\r\n**Description**\r\n\r\nI tried [this code](https://github.com/futursolo/local-enter-guard-test):\r\n\r\n```rust\r\nuse std::time::Duration;\r\nuse tokio::sync::oneshot;\r\nuse tokio::task::{spawn_local, LocalSet};\r\nuse tokio::time::sleep;\r\n\r\nfn main() {\r\n    let rt = tokio::runtime::Builder::new_current_thread()\r\n        .enable_all()\r\n        .build()\r\n        .expect(\"failed to create runtime\");\r\n\r\n    let local = LocalSet::new();\r\n    // Comment this and the program would exit as usual.\r\n    let _guard = local.enter();\r\n\r\n    let (tx, rx) = oneshot::channel();\r\n\r\n    local.block_on(&rt, async move {\r\n        spawn_local(async move {\r\n            sleep(Duration::ZERO).await;\r\n\r\n            tx.send(()).expect(\"failed to send\");\r\n        });\r\n        assert_eq!(rx.await, Ok(()));\r\n    });\r\n}\r\n\r\n```\r\n\r\nI expected to see this happen: \r\n\r\nThis program should exit shortly.\r\n\r\nInstead, this happened:\r\n\r\nThe program hangs forever.\r\n",
+  "closed": true,
+  "closedAt": "2023-10-15T17:18:07Z",
+  "comments": [
+    {
+      "author": {
+        "login": "Noah-Kennedy"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "I stepped through this in a debugger. Looks like the future from `sleep` never completes.",
+      "createdAt": "2022-09-19T21:25:16Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "createdAt": "2022-09-16T14:23:26Z",
+  "id": "I_kwDOBAsbdc5SBHcy",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTEyMzI4",
+      "name": "M-task",
+      "description": "Module: tokio/task",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 5020,
+  "reactionGroups": [
+    {
+      "content": "THUMBS_UP",
+      "users": {
+        "totalCount": 2
+      }
+    }
+  ],
+  "state": "CLOSED",
+  "title": "LocalEnterGuard would cause current thread runtime to become stuck",
+  "updatedAt": "2023-10-15T17:18:07Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/5020"
+}

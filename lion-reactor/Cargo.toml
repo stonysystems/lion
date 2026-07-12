@@ -1,0 +1,22 @@
+[package]
+name = "lion-reactor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lion Team"]
+description = "A single-threaded async I/O reactor for Lion runtime (v2: lion-liveness compatible)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
+lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
+lion-reactor-spec = { path = "../lion-reactor-spec", package = "lion-reactor-spec" }
+lion-utility-spec = { path = "../lion-utility/lion-utility-spec", package = "lion-utility-spec" }
+lion-slab = { path = "../lion-slab", package = "lion-slab" }
+lion-timer-wheel = { path = "../lion-timer-wheel", package = "lion-timer-wheel" }
+mio = { version = "1.0", features = ["os-poll", "net"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+
+[package.metadata.verus]
+verify = true

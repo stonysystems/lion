@@ -1,0 +1,12 @@
+[package]
+name = "cs-tokio-1-42"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cs-tokio-1-42"
+path = "src/main.rs"
+
+[dependencies]
+rt = { package = "tokio", version = "=1.42.0", features = ["full"] }
+futures = "0.3"

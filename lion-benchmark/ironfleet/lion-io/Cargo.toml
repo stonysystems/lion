@@ -1,0 +1,14 @@
+[package]
+name = "ironfleet-io-lion"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ironfleet_io_lion"
+crate-type = ["cdylib"]
+
+[dependencies]
+lion = { path = "../../../lion", package = "lion" }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+flume = "0.11"
+sha2 = "0.10"

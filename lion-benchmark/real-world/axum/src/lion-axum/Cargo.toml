@@ -1,0 +1,29 @@
+[package]
+name = "lion-axum-fileserver"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "axum-fileserver"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+# No direct tokio dependency: this arm's code has zero tokio:: calls (runtime,
+# net, spawn, fs are all lion::*). Tokio still enters the build transitively —
+# trait plumbing pulled by axum's default "tokio" feature (net/rt/macros) and
+# hyper-util's "tokio" feature (rt/time), plus the lion facade's trait-only
+# re-export — but no code here constructs or drives a tokio runtime.
+lion = { path = "../../../../../lion", package = "lion" }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

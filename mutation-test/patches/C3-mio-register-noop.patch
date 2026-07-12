@@ -1,0 +1,18 @@
+diff --git a/lion-reactor/src/reactor/ext.rs b/lion-reactor/src/reactor/ext.rs
+index c17e3639..b76391ba 100644
+--- a/lion-reactor/src/reactor/ext.rs
++++ b/lion-reactor/src/reactor/ext.rs
+@@ -216,10 +216,10 @@ impl Reactor {
+     let registry = self.poll.inner.registry();
+     let mio_token = mio::Token(encode_token_raw(resource_id.0));
+     let mio_interest = interest_to_mio(interest);
+-    match registry.register(source.inner, mio_token, mio_interest) {
+-      Ok(()) => IoResult::Ok(()),
+-      Err(e) => IoResult::Err(IoError { inner: e }),
++    if false {
++      let _ = registry.register(source.inner, mio_token, mio_interest);
+     }
++    IoResult::Ok(()) // C3: registration skipped
+   }
+ 
+   #[verifier::external_body]

@@ -1,0 +1,34 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Verus toolchain
+        uses: actions/cache@v4
+        with:
+          path: verus-toolchain
+          key: verus-${{ runner.os }}-${{ hashFiles('setup.sh') }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Install pinned Rust + Verus
+        run: ./setup.sh
+
+      - name: Verify all crates
+        run: ./ci.sh

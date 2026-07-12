@@ -1,0 +1,21 @@
+[workspace]
+members = [
+  "rumqttc",
+  "rumqttd",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+repository = "https://github.com/bytebeamio/rumqtt"
+license = "Apache-2.0"
+authors = ["tekjar <raviteja@bytebeam.io>"]
+
+[profile.dev]
+debug = false
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = false
+debug = 1

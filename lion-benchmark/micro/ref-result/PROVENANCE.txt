@@ -1,0 +1,6 @@
+commit: c6736367
+host: zoo-002 (AMD EPYC 7702P 64-Core Processor)
+threads: 128, numa: 1
+kernel: 5.15.0-185-generic, governor: schedutil
+mode: single
+protocol: DURATION=10s x RUNS=10, MT_THREADS=1 2 3 4 6 8, batch 1/1

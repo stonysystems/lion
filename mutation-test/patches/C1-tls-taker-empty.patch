@@ -1,0 +1,14 @@
+diff --git a/lion-executor/src/executor/ext.rs b/lion-executor/src/executor/ext.rs
+index 51b639d1..464eb1d6 100644
+--- a/lion-executor/src/executor/ext.rs
++++ b/lion-executor/src/executor/ext.rs
+@@ -300,8 +300,7 @@ impl Executor {
+   #[verifier::external_body]
+   fn take_task_ready_from_tls() -> Vec<TaskId>
+   {
+-    tls::drain_cross_thread();
+-    tls::take_task_ready().into()
++    Vec::new() // C1: TLS never drained
+   }
+ 
+   #[verifier::external_body]

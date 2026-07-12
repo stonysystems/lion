@@ -1,0 +1,26 @@
+[package]
+name = "lion-utility"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lion Team"]
+description = "Formally verified Lion async utilities (verified kernel + thin glue)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
+lion-utility-spec = { path = "lion-utility-spec", package = "lion-utility-spec" }
+lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor" }
+lion-executor = { path = "../lion-executor", package = "lion-executor" }
+mio = { version = "1.0", features = ["os-poll", "net"] }
+socket2 = { version = "0.5", features = ["all"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+
+[package.metadata.verus]
+verify = true
+
+[package.metadata.verus.ide]
+extra_args = "--crate-type=lib --expand-errors"

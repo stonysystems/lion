@@ -1,0 +1,102 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "quininer"
+  },
+  "body": "**Version**\r\n\r\n```\r\n└── tokio v0.3.2\r\n```\r\n\r\n**Platform**\r\n\r\n```\r\nLinux hostname 5.9.1-arch1-1 #1 SMP PREEMPT Sat, 17 Oct 2020 13:30:37 +0000 x86_64 GNU/Linux\r\n```\r\n\r\nand windows 10.\r\n\r\n**Description**\r\n\r\ncode https://gist.github.com/quininer/72dd236419c67f99b1f9ae0711ca0411\r\n\r\n```rust\r\nfn main() {\r\n    let rt = tokio::runtime::Runtime::new().unwrap();\r\n\r\n    let j = rt.spawn(async move {\r\n        loop {\r\n            dbg!(\"start\");\r\n            tokio::time::sleep(std::time::Duration::from_millis(0)).await;\r\n            dbg!(\"end\");\r\n        }\r\n    });\r\n\r\n    rt.block_on(j).unwrap();\r\n}\r\n```\r\n\r\nThis code may hang on sleep.\r\n\r\nI discovered this problem earlier, but I haven't had time to debug it recently. :(\r\n",
+  "closed": true,
+  "closedAt": "2020-11-24T11:09:28Z",
+  "comments": [
+    {
+      "author": {
+        "login": "Darksonn"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "I changed it to the following:\r\n```rust\r\nfn main() {\r\n    let rt = tokio::runtime::Runtime::new().unwrap();\r\n\r\n    let j = rt.spawn(async move {\r\n        let mut i = 0;\r\n        loop {\r\n            println!(\"start {}\", i);\r\n            tokio::time::sleep(std::time::Duration::from_millis(0)).await;\r\n            println!(\"end {}\", i);\r\n            i += 1;\r\n        }\r\n    });\r\n\r\n    rt.block_on(j).unwrap();\r\n}\r\n```\r\nIt behaves as I would expect, i.e. printing start and end forever. What do you see?",
+      "createdAt": "2020-10-29T12:34:16Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "quininer"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "It will always stop at a number on my machine. If you use tsan, it seems easier to reproduce.\r\n\r\n![Screenshot_20201029_205450](https://user-images.githubusercontent.com/6286761/97576599-53fcf480-1a29-11eb-95b7-f41455a27f7a.png)\r\n",
+      "createdAt": "2020-10-29T12:57:25Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "carllerche"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "@bdonlan is working on timer improvements. He will include this as a test case. The PR should be up soon.",
+      "createdAt": "2020-10-30T18:29:36Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "quininer"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "I think this has been fixed.",
+      "createdAt": "2020-11-24T11:09:28Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2020-10-29T07:04:02Z",
+  "id": "MDU6SXNzdWU3MzIwNjIwODU=",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTEzODQx",
+      "name": "M-time",
+      "description": "Module: tokio/time",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 3069,
+  "reactionGroups": [
+    {
+      "content": "THUMBS_UP",
+      "users": {
+        "totalCount": 1
+      }
+    }
+  ],
+  "state": "CLOSED",
+  "title": "Tokio 0.3 timer will hang when duration is small",
+  "updatedAt": "2020-11-24T11:09:29Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/3069"
+}

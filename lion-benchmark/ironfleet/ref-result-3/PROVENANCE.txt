@@ -1,0 +1,6 @@
+commit: 72c44640
+host: zoo-002 (AMD EPYC 7702P 64-Core Processor)
+threads: 128, numa: 1
+kernel: 5.15.0-185-generic, governor: schedutil
+client: zoo-004, rtt: 0.252 ms
+protocol: reps=3 per cell (interleaved rep-outer), 30s each, cells={lion,csharp}x{unpin,1core}

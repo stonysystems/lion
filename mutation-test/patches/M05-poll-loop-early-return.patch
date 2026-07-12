@@ -1,0 +1,12 @@
+diff --git a/lion-executor/src/executor/tick.rs b/lion-executor/src/executor/tick.rs
+index 3d4bb9e6..9db38951 100644
+--- a/lion-executor/src/executor/tick.rs
++++ b/lion-executor/src/executor/tick.rs
+@@ -224,6 +224,7 @@ impl Executor {
+         (exists |q: int| #![auto] old(self).log@.len() as int <= q < self.log@.len() as int &&
+           is_poll_task_at(self.log@, q)),
+   {
++    return; // M05
+     let ghost entry_log = self.log@;
+     let ghost entry_len = self.log@.len();
+     let ghost mut poll_witness: int = 0;

@@ -1,0 +1,13 @@
+diff --git a/lion-timer-wheel/src/wheel.rs b/lion-timer-wheel/src/wheel.rs
+index cb62aa9d..23139a1a 100644
+--- a/lion-timer-wheel/src/wheel.rs
++++ b/lion-timer-wheel/src/wheel.rs
+@@ -2781,7 +2781,7 @@ impl TimerWheel {
+         #[trigger] self.deadlines@.contains_key(rid) implies self.deadlines@[rid] <= now
+       by {};
+     }
+-    self.elapsed = now;
++    // M01: elapsed update removed
+     proof {
+       reveal(TimerWheel::cached_min_valid);
+       // structural_wf: levels unchanged

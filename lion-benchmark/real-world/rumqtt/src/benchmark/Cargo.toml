@@ -1,0 +1,16 @@
+[package]
+name = "mqtt-benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rumqttc = { version = "0.24", features = [] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+clap = { version = "4.2", features = ["derive"] }
+anyhow = "1.0"
+hdrhistogram = "7.5"
+rand = "0.8"
+
+[[bin]]
+name = "mqtt-benchmark"
+path = "src/main.rs"

@@ -1,0 +1,10 @@
+commit: 4638d704
+host: zoo-002 (AMD EPYC 7702P 64-Core Processor)
+threads: 128, numa: 1
+kernel: 5.15.0-185-generic, governor: schedutil
+client: zoo-004, rtt: 0.259 ms
+protocol: reps=3 per cell (interleaved rep-outer), 30s each, cells={lion,csharp}x{unpin,1core}
+note: ironfleet/run.sh and collect_paper_data.sh on the collection clone were
+  synced ahead of the recorded commit to 93ed04f5+390612ef (dotnet SDK
+  resolution, .cpulog persistence, SSH cred passthrough); all other files at
+  commit 4638d704.

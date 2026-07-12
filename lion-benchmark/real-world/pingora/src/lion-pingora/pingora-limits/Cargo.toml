@@ -1,0 +1,31 @@
+[package]
+name = "pingora-limits"
+version = "0.8.0"
+authors = ["Yuchen Wu <yuchen@cloudflare.com>"]
+license = "Apache-2.0"
+description = "A library for rate limiting and event frequency estimation"
+edition = "2021"
+repository = "https://github.com/cloudflare/pingora"
+categories = ["algorithms"]
+keywords = ["rate-limit", "pingora"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pingora_limits"
+path = "src/lib.rs"
+
+[dependencies]
+ahash = { workspace = true }
+
+[dev-dependencies]
+rand = "0.8"
+dashmap = "5"
+dhat = "0"
+float-cmp = "0.9.0"
+
+[[bench]]
+name = "benchmark"
+harness = false
+
+[features]
+dhat-heap = [] # for benchmark only

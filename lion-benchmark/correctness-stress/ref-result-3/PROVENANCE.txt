@@ -1,0 +1,7 @@
+commit: 72c44640
+host: zoo-002 (AMD EPYC 7702P 64-Core Processor), fresh GitHub clone
+protocol: ./run.sh (REPS=3, TIMEOUT=15s, HEATMAP=1); C ports via
+  libevent-tests/{build_deps.sh,make all,run.sh} and libuv-tests same (REPS
+  per their run.sh defaults)
+note: first stress batch on the reworked lion facade (MultiRuntime workers
+  park on a lion oneshot instead of busy-spinning a self-waking future).

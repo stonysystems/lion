@@ -1,0 +1,17 @@
+# Negative control: a Tokio release in which the liveness bugs this suite
+# reproduces (#5020 current-thread, #7209 multi-thread) are fixed. Expected
+# 0/REPS hangs in both configurations — demonstrating the workload detects
+# version-specific bugs rather than being adversarial to Tokio as such (the
+# same role libevent 2.1.12 / libuv 1.44.2 play for the C ports).
+[package]
+name = "cs-tokio-latest"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cs-tokio-latest"
+path = "src/main.rs"
+
+[dependencies]
+rt = { package = "tokio", version = "=1.52.3", features = ["full"] }
+futures = "0.3"

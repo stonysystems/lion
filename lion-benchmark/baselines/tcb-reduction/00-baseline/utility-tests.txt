@@ -1,0 +1,44 @@
+
+running 1 test
+test time::interval::tests::interval_third_deadline_is_first_plus_two_periods ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 12 tests
+test cancelled_lock_owned_does_not_deadlock ... ok
+test cancelled_mutex_lock_does_not_deadlock ... ok
+test completed_notified_drop_is_inert ... ok
+test dropped_acquire_does_not_swallow_permit ... ok
+test dropped_notified_does_not_swallow_notify_one ... ok
+test granted_then_dropped_acquire_forwards_permit ... ok
+test mpsc_cancelled_recv_is_clean ... ok
+test mpsc_cancelled_send_forwards_slot_hint ... ok
+test mpsc_dropped_parked_send_does_not_swallow_wakeup ... ok
+test notified_then_dropped_forwards_notification ... ok
+test notify_waiters_drop_does_not_leak_permit ... ok
+test watch_cancelled_changed_is_clean ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test broadcast_capacity_zero_panics - should panic ... ok
+test mpsc_ping_pong_no_park_when_capacity_available ... ok
+test mpsc_recv_drains_stale_wake_hint_then_parks ... ok
+test mpsc_send_parks_then_completes_after_recv ... ok
+test mpsc_unbounded_recv_drains_stale_wake_hint_then_parks ... ok
+test oneshot_parked_receiver_drop_then_send_does_not_panic ... ok
+test oneshot_poll_then_send_wakes ... ok
+test oneshot_receiver_drop_then_send_does_not_panic ... ok
+test oneshot_send_then_poll ... ok
+test oneshot_sender_drop_wakes_receiver_with_err ... ok
+test watch_changed_parks_then_sees_send ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,15 @@
+[package]
+name = "lion"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lion Team"]
+description = "Lion async runtime backed by formally verified components (lion-executor + lion-reactor)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+lion-executor = { path = "../lion-executor", package = "lion-executor" }
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor" }
+lion-utility-verified = { path = "../lion-utility", package = "lion-utility" }
+lion-macro = { path = "../lion-macro" }
+tokio = { version = "1", features = ["sync", "macros", "io-util", "rt"] }
+flume = "0.11"

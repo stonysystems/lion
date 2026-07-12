@@ -1,0 +1,26 @@
+[package]
+name = "lion-executor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lion Team"]
+description = "A single-threaded async executor for Lion runtime (v2: verification-compatible)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor" }
+lion-reactor-spec = { path = "../lion-reactor-spec", package = "lion-reactor-spec" }
+lion-utility-spec = { path = "../lion-utility/lion-utility-spec", package = "lion-utility-spec" }
+lion-slab = { path = "../lion-slab", package = "lion-slab" }
+lion-timer-wheel = { path = "../lion-timer-wheel", package = "lion-timer-wheel" }
+pin-project-lite = "0.2"
+futures-task = "0.3"
+flume = "0.11"
+vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
+lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
+lion-executor-spec = { path = "../lion-executor-spec", package = "lion-executor-spec" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+
+[package.metadata.verus]
+verify = true

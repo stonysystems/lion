@@ -1,0 +1,16 @@
+diff --git a/lion-timer-wheel/src/wheel.rs b/lion-timer-wheel/src/wheel.rs
+--- a/lion-timer-wheel/src/wheel.rs
++++ b/lion-timer-wheel/src/wheel.rs
+@@ -4017,9 +4017,9 @@
+     // Levels 1-2 are prefiltered against the level-0 candidate: when c0
+     // already undercuts the slot's shifted lower bound the member scan is
+     // skipped (None then means "every member exceeds c0", not "empty").
+-    let c1 = self.scan_level_min(1, c0);
+-    let c2 = self.scan_level_min(2, c0);
+-    let c3 = self.scan_level3_min();
++    let c1: Option<u64> = None; // M04
++    let c2: Option<u64> = None;
++    let c3: Option<u64> = None;
+ 
+     let mut best: Option<u64> = None;
+     if let Some(d) = c0 { best = Self::merge_min(best, d); }

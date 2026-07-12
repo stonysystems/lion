@@ -1,0 +1,7 @@
+system,runtime,workload,metric,mean,stddev,unit
+axum,lion,large,throughput,24731.24,326.30,ops/s
+axum,lion,mixed,throughput,44524.65,650.69,ops/s
+axum,lion,small,throughput,55032.18,1712.69,ops/s
+axum,tokio,large,throughput,22784.25,249.22,ops/s
+axum,tokio,mixed,throughput,41276.32,1341.51,ops/s
+axum,tokio,small,throughput,46678.65,928.96,ops/s

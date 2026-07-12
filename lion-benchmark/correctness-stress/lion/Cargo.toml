@@ -1,0 +1,12 @@
+[package]
+name = "cs-lion"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cs-lion"
+path = "src/main.rs"
+
+[dependencies]
+rt = { path = "../../../lion", package = "lion" }
+futures = "0.3"

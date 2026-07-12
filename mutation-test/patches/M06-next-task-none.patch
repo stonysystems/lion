@@ -1,0 +1,12 @@
+diff --git a/lion-executor/src/executor/next_task.rs b/lion-executor/src/executor/next_task.rs
+index 682c6c41..6b8ba37d 100644
+--- a/lion-executor/src/executor/next_task.rs
++++ b/lion-executor/src/executor/next_task.rs
+@@ -42,6 +42,7 @@ impl Executor {
+           Seq::empty().push(result.unwrap()@) + self.local_queue@,
+       result.is_none() ==> fifo_queue_matches(self.log@, self.local_queue@),
+   {
++    return None; // M06
+     // Path 1: Pop directly from local queue
+     if let Some(task_id) = self.local_queue.pop_front() {
+       proof {

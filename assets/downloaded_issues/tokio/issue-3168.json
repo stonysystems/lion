@@ -1,0 +1,119 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "tijsvd"
+  },
+  "body": "**Version**\r\ntokio v0.3.4\r\n\r\n**Platform**\r\n`Linux 4.9.0-13-amd64 #1 SMP Debian 4.9.228-1 (2020-07-05) x86_64 GNU/Linux`\r\n\r\n**Description**\r\nI'm having some trouble with `sync::watch` under high-ish load. Maybe related to `sync::Notify`. I think there may be multiple problems.\r\n\r\n***Situation 1: regular multi-threaded runtime***\r\n\r\nMinimal example:\r\n\r\n```rust\r\nasync fn sender(snd: watch::Sender<i32>) {\r\n        let mut n = 0;\r\n        loop {\r\n                tokio::time::sleep(std::time::Duration::from_millis(1)).await;\r\n                for _ in 0..1000 {\r\n                        n += 1;\r\n                        snd.send(n).ok();\r\n                }\r\n                println!(\"snd {}\", n);\r\n        }\r\n}\r\n\r\nasync fn receiver(mut rcv: watch::Receiver<i32>) {\r\n        loop {\r\n                rcv.changed().await.unwrap();\r\n                let n = *rcv.borrow();\r\n                if n % 1000 == 0 {\r\n                        println!(\"rcv {}\", n);\r\n                }\r\n        }\r\n}\r\n\r\n#[tokio::main(flavor=\"multi_thread\")]\r\nasync fn main() {\r\n        let (snd, rcv) = watch::channel(0);\r\n        tokio::spawn(sender(snd));\r\n        tokio::spawn(receiver(rcv));\r\n        loop {\r\n                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;\r\n        }\r\n}\r\n```\r\n\r\nI expected this to run forever. However, it hangs after a varying number of iterations (typically ~45000 on my machine). Intestingly, it blocks in the sender. If I remove the receiver altogether, it still hangs. If I remove the call to `send()`, it continues smoothly.\r\n\r\nAccording to gdb, a number of threads are waiting in `pthread_cond_wait` under what seems like normal idle thread conditions. One thread is in `epoll_wait` with a timeout of 3407803. No thread seems to be in a timed-wait situation and it doesn't look like there is a deadlock. But when I interrupt in gdb and then continue, the application continues a bit further before hanging again -- indicates a timeout is calculated incorrectly somewhere?\r\n\r\nIn a single-threaded environment (`flavor=\"current_thread\"`), it's all fine apparently.\r\n\r\n***Situation 2: multiple single-threaded runtimes***\r\n\r\nRunning in an explicit multi-threaded environment with multiple runtimes:\r\n\r\n```rust\r\nfn spawn_thread<B,F>(task: B)\r\n        where B: Send + 'static + FnOnce()->F,\r\n                  F: std::future::Future<Output=()> + 'static\r\n{\r\n        std::thread::spawn(move|| {\r\n                let rt = tokio::runtime::Builder::new_current_thread()\r\n                        .enable_all()\r\n                        .build().unwrap();\r\n                rt.block_on(task());\r\n        });\r\n}\r\n\r\n...\r\nspawn_thread(move || sender(snd));\r\nspawn_thread(move || receiver(rcv));\r\n```\r\n\r\nResults in:\r\n\r\n```\r\nthread '<unnamed>' panicked at '[bug] failed to observe change after notificaton.', <home>/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-0.3.4/src/sync/watch.rs:256:14\r\n```\r\n\r\nThe code on that location indicates spurious notifications. I expected code involving multiple runtimes in different threads to work fine, as it did in tokio 0.2. By the way, the error message itself has a spelling error (misssing an i in notificaton). ",
+  "closed": true,
+  "closedAt": "2020-12-10T08:46:02Z",
+  "comments": [
+    {
+      "author": {
+        "login": "tijsvd"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Ok, I've dug into this a bit further. The first situation, i.e. multi-threaded runtime, can be reduced to a timer ordering problem, or a race condition when adding a new timer. This is fairly serious. \r\n\r\n```rust\r\n#[tokio::main(flavor=\"multi_thread\")]\r\nasync fn main() {\r\n    tokio::spawn(async {\r\n        for i in 0.. {\r\n            tokio::time::sleep(std::time::Duration::from_millis(1)).await;\r\n            println!(\"slept {}\", i);\r\n        }\r\n    });\r\n\r\n    loop {\r\n        tokio::time::sleep(std::time::Duration::from_secs(10)).await;\r\n    }\r\n}\r\n```\r\n\r\nThis will print a continuous series of numbers on my terminal, but from time to time it will hang for a few (up to 10) seconds. When I change the second timer to a large number, it will just hang. Perhaps this should be a separate issue? \r\n\r\nThe second situation (multiple explicit threads) can be reduced to spurious wakeups in `Notify::notify_waiters()`.\r\n\r\n```rust\r\nuse tokio::sync::Notify;\r\nuse std::sync::Arc;\r\nuse std::sync::atomic::{AtomicUsize,Ordering::*};\r\n\r\nfn spawn_thread<B,F>(task: B)\r\n    where B: Send + 'static + FnOnce()->F,\r\n          F: std::future::Future<Output=()> + 'static\r\n{\r\n    std::thread::spawn(move|| {\r\n        let rt = tokio::runtime::Builder::new_current_thread()\r\n            //.enable_all()\r\n            .enable_time()\r\n            .build().unwrap();\r\n        rt.block_on(task());\r\n    });\r\n}\r\n\r\nstruct Stuff {\r\n    x: AtomicUsize,\r\n    n: Notify,\r\n}\r\n\r\nasync fn sender(s: Arc<Stuff>) {\r\n    loop {\r\n        tokio::time::sleep(std::time::Duration::from_millis(1)).await;\r\n        let mut prev = 0;\r\n        for _ in 0..1000 {\r\n            prev = s.x.fetch_add(1, SeqCst);\r\n            s.n.notify_waiters();\r\n        }\r\n        println!(\"snd {}\", prev + 1);\r\n    }\r\n}\r\n\r\nasync fn receiver(s: Arc<Stuff>) {\r\n    let mut last = s.x.load(SeqCst);\r\n    loop {\r\n        let n = s.n.notified();\r\n        let current = s.x.load(SeqCst);\r\n        if current == last {\r\n            n.await;\r\n        }\r\n        let nw = s.x.load(SeqCst);\r\n        assert!(nw != last, \"fail nw=last={}\", nw);\r\n        last = nw;\r\n        if nw % 1000 == 0 {\r\n            println!(\"rcv {}\", nw);\r\n        }\r\n    }\r\n}\r\n\r\n#[tokio::main(flavor=\"multi_thread\")]\r\nasync fn main() {\r\n    let s = Arc::new(Stuff {\r\n        x: AtomicUsize::new(0),\r\n        n: Notify::new(),\r\n    });\r\n    let snd = s.clone();\r\n    let rcv = s;\r\n    spawn_thread(move || sender(snd));\r\n    spawn_thread(move || receiver(rcv));\r\n    loop {\r\n        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;\r\n    }\r\n}\r\n```\r\n\r\nThis asserts after a few 100 iterations. The logic is the same as what `sync::watch` does. Sender increases the counter, then notifies, while receiver registers for notification, then checks counter, and awaits if it hasn't changed yet. Reading the code of Notification, it was meant to work correctly this way. \r\n\r\nIt's interesting how this happens only in the case of two runtimes in different threads. Running both tasks in a single multi-threaded runtime (changing sleep to `yield_now` to avoid first issue) does not hit the assert.",
+      "createdAt": "2020-11-28T09:32:53Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "tijsvd"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "I've reduced the interaction between `watch` and `Notify` to a series of atomic updates. The following asserts as well:\r\n\r\n```rust\r\nuse std::sync::{Arc};\r\nuse std::sync::atomic::{AtomicUsize,Ordering::*};\r\n\r\nstruct Stuff {\r\n    x: AtomicUsize, // watch version\r\n    n: AtomicUsize, // notified counter\r\n}\r\n\r\nfn sender(s: Arc<Stuff>) {\r\n    loop {\r\n        std::thread::sleep(std::time::Duration::from_millis(1));\r\n        let mut prev = 0;\r\n        for _ in 0..1000 {\r\n            prev = s.x.fetch_add(1, SeqCst);\r\n            s.n.fetch_add(1, SeqCst);\r\n        }\r\n        println!(\"snd {}\", prev + 1);\r\n    }\r\n}\r\n\r\nfn receiver(s: Arc<Stuff>) {\r\n    let mut last = s.x.load(SeqCst);\r\n    loop {\r\n        let n = s.n.load(SeqCst);\r\n        let mut m = n;\r\n        let current = s.x.load(SeqCst);\r\n        if current == last {\r\n            while n == m {\r\n                m = s.n.load(SeqCst);\r\n            }\r\n        }\r\n        let nw = s.x.load(SeqCst);\r\n        assert!(nw != last, \"fail nw=last={}, current={}, n={}, m={}\", nw, current, n, m);\r\n        last = nw;\r\n        if nw % 1000 == 0 {\r\n            println!(\"rcv {}\", nw);\r\n        }\r\n    }\r\n}\r\n\r\nfn main() {\r\n    let s = Arc::new(Stuff {\r\n        x: AtomicUsize::new(0),\r\n        n: AtomicUsize::new(0),\r\n    });\r\n    let snd = s.clone();\r\n    let rcv = s;\r\n    std::thread::spawn(move || sender(snd));\r\n    receiver(rcv);\r\n}\r\n```\r\n\r\nwith a message like:\r\n\r\n`thread 'main' panicked at 'fail nw=last=2066, current=2066, n=2065, m=2066', src/main.rs:33:9`\r\n\r\nEither there's a problem with the Rust compiler and atomic integers, or the logic is somehow not sound.",
+      "createdAt": "2020-11-28T10:31:16Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "tijsvd"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Looking at the reduced case, the problem is actually obvious. Remember that the sender updates the value/version first, then notifies. A first call to `Receiver::changed()` may observe an update. Then, a subsequent call to `changed()` may first see that the version is still the same as in the previous observation (watch.rs:249), and await the notifier (watch.rs:253). If the notification related to the previous update (which was already observed) comes through only now, the notifier will show ready, and the assertion will hit. Registering the notifier early (watch.rs:247) only makes sure we don't miss a notification.\r\n\r\nIt would be better to write this code like one generally would when waiting on some condition variable, robust against spurious wake-ups:\r\n\r\n```rust\r\n loop {\r\n        let notified = self.shared.notify_rx.notified();\r\n        if let Some(ret) = maybe_changed(&self.shared, &mut self.version) {\r\n            return ret;\r\n        }\r\n        notified.await;\r\n}\r\n```",
+      "createdAt": "2020-11-28T11:47:40Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "tijsvd"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Timer problem registered as #3190 ",
+      "createdAt": "2020-11-28T12:31:31Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "carllerche"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "@tijsvd Thanks for debugging this. You are correct that `watch` does not correctly handle spurious notifications. Is this something that you can submit as an issue? I'm not sure what would be the best way to write a test, either a \"stress\" test that loops a bunch or a loom test. What do you think?",
+      "createdAt": "2020-12-08T05:16:57Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "tijsvd"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "> @tijsvd Thanks for debugging this. You are correct that `watch` does not correctly handle spurious notifications. Is this something that you can submit as an issue? I'm not sure what would be the best way to write a test, either a \"stress\" test that loops a bunch or a loom test. What do you think?\r\n\r\nI'm not at all familiar with this project's testing framework -- I just noticed the bug. If this was my own project, I'd make sure to have a test that nothing is missed, and then just add the loop in the name of making it more robust.",
+      "createdAt": "2020-12-08T09:50:31Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2020-11-23T14:46:20Z",
+  "id": "MDU6SXNzdWU3NDg4NjM1NDQ=",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTExOTI3",
+      "name": "M-sync",
+      "description": "Module: tokio/sync",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 3168,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "sync::watch misbehaves in multi-threaded context",
+  "updatedAt": "2020-12-10T08:46:02Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/3168"
+}

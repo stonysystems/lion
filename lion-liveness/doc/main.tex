@@ -1,0 +1,659 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{mathtools}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\setcounter{tocdepth}{1}
+
+\definecolor{vkeyword}{RGB}{170,20,110}   % magenta-ish: pub/spec/fn/forall/...
+\definecolor{vtype}{RGB}{20,110,160}      % teal: types (bool, nat, ModuleSpec, ...)
+\definecolor{vcomment}{RGB}{90,120,90}    % muted green: // comments
+\definecolor{vstring}{RGB}{160,60,30}     % rust brown: string literals
+\definecolor{vframe}{RGB}{200,200,200}    % light gray frame
+\definecolor{vbg}{RGB}{249,249,250}       % near-white background
+
+% Proof-sketch colour coding: three kinds of justification.
+\definecolor{cAssume}{RGB}{190,110,10}    % amber: assumptions
+\definecolor{cInv}{RGB}{30,130,60}        % green: module invariants
+\definecolor{cContract}{RGB}{30,90,200}   % blue: async contracts
+\newcommand{\asm}[1]{\textcolor{cAssume}{#1}}
+\newcommand{\inv}[1]{\textcolor{cInv}{#1}}
+\newcommand{\ctr}[1]{\textcolor{cContract}{#1}}
+
+\lstdefinelanguage{Verus}{
+  morekeywords={pub,open,spec,fn,forall,exists,true,false,let,ghost,proof,use},
+  keywords=[2]{bool,nat,ModuleSpec,AsyncContract,spec_fn,L,T,Seq,Map},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]",
+}
+\lstset{
+  language=Verus,
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\bfseries\color{vkeyword},
+  keywordstyle=[2]\color{vtype},
+  commentstyle=\itshape\color{vcomment},
+  stringstyle=\color{vstring},
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{vframe},
+  backgroundcolor=\color{vbg},
+  framesep=5pt,
+  xleftmargin=4pt,
+  aboveskip=1em,
+  belowskip=1em,
+}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
+
+\title{Mechanized Liveness Verification of an Asynchronous Runtime:\\
+       The \texttt{lion-liveness} Formal Model in Verus}
+\author{Ti Zhou}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a mechanized liveness proof for an asynchronous runtime. We decompose
+the runtime into a \emph{runtime Core} (the Executor and the Reactor), an
+\emph{Injection Queue} (the external queue into which tasks are submitted and from
+which the Executor draws them), and a set of \emph{Tasks} that are managed by the
+Core and interact through synchronization primitives; the observable state of the
+runtime under this decomposition is modeled as the composition of the modules'
+event logs. Under three classes of premises---(i) \emph{environment assumptions}
+(for example, that the clock advances monotonically; the remaining assumptions are
+introduced in later sections), (ii) \emph{user task-behavior assumptions} (for
+example, that a task returns ready within a bounded number of polls), and (iii)
+\emph{Core invariants} (the module invariants of the Reactor and the Executor,
+whose validity is discharged by the separately verified implementation crates
+\texttt{lion-reactor} and \texttt{lion-executor})---we prove that every task
+injected into the Injection Queue is driven to completion, that is, is polled
+until it returns \texttt{Ready}.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+%% ============================================================
+%% Body
+%% ============================================================
+
+\section{Model: Event Logs and Async Contracts}
+\label{sec:model}
+
+\paragraph{Log model.}
+Every module is modeled by its \emph{event log}: a finite sequence $\ell \in L$
+recording the events the module has emitted so far. A module is specified by a pair
+\[
+  \mathsf{ModuleSpec}\langle L\rangle
+  = \bigl(\mathit{wf} : L \to \mathbb{B},\;\; \mathit{progress} : L \times L \to \mathbb{B}\bigr),
+\]
+where $\mathit{wf}$ is a well-formedness invariant on logs and $\mathit{progress}(\ell,\ell')$
+is the one-step transition relation (typically $\ell'$ extends $\ell$ by a single event).
+We write $\mathit{progress}^{\,n}(\ell,\ell')$ when a valid trace
+$\ell = \ell_0, \ell_1, \dots, \ell_n = \ell'$ with $\mathit{progress}(\ell_i,\ell_{i+1})$ for
+all $i$ connects the two logs, and call $\mathit{wf}$ \emph{inductive} when
+$\mathit{wf}(\ell) \wedge \mathit{progress}(\ell,\ell') \Rightarrow \mathit{wf}(\ell')$.
+
+\paragraph{Async contracts.}
+A liveness obligation is expressed as an \emph{async contract} over a subject type
+$T$ (a task id, a resource id, \dots):
+\[
+  \mathsf{AsyncContract}\langle L, T\rangle
+  = \bigl(\mathit{acc},\; \mathit{ful},\; \mathit{asm}\bigr),
+  \qquad \mathit{acc},\,\mathit{ful},\,\mathit{asm} : L \times T \to \mathbb{B}.
+\]
+Read operationally: once the trigger $\mathit{acc}(\ell,t)$ (\emph{acceptance}) has
+occurred and the assumption $\mathit{asm}(\ell,t)$ holds, the module must eventually
+reach the goal $\mathit{ful}(\ell,t)$ (\emph{fulfillment}).
+
+\paragraph{Bounded liveness under an environment filter.}
+The goal must be reached within a \emph{bounded} number of steps along every run
+whose \emph{every} state satisfies the assumption. Writing
+$\mathit{progress}^{\,n}_{\mathit{asm}}(\ell,\ell')$ for an $n$-step trace
+$\ell=\ell_0,\dots,\ell_n=\ell'$ all of whose states satisfy $\mathit{asm}(\ell_i,t)$,
+a module \emph{satisfies} its contract when it preserves its invariant and, from
+every accepted state at which the assumption holds, some horizon $n$ makes the goal
+unavoidable:
+\[
+\begin{aligned}
+  \mathsf{BoundedLiveness}(\mathit{ms}, \mathit{ac}) \;\equiv\;{}
+    & (\mathit{wf}\ \text{inductive}) \;\wedge\;
+      \forall\, t, \ell.\;\;
+      \bigl(\mathit{wf}(\ell) \wedge \mathit{acc}(\ell,t) \wedge \mathit{asm}(\ell,t)\bigr) \\
+    & \qquad {}\Rightarrow\;
+      \exists\, n.\;\forall \ell'.\;
+      \mathit{progress}^{\,n}_{\mathit{asm}}(\ell,\ell') \Rightarrow \mathit{ful}(\ell',t).
+\end{aligned}
+\]
+This $\Box\,\mathit{asm} \Rightarrow \Diamond\,\mathit{ful}$ schema is the single shape
+in which every module's liveness---and the composed end-to-end guarantee---is stated
+and proved. Concretely, it is the following Verus specification, where
+\lstinline|env| is the filter $\mathit{asm}$ and \lstinline|env_progress_n| is the
+env-filtered reachability $\mathit{progress}^{\,n}_{\mathit{asm}}$:
+
+\begin{lstlisting}[caption={The Verus definition of $\mathsf{BoundedLiveness}$ (env-filtered form). Here \texttt{env} abbreviates the \emph{environmental assumption}; \texttt{progress\_preserves\_wf} requires \texttt{well\_formed} to be preserved by \emph{every} progress step; SMT trigger annotations are elided.},label={lst:bl}]
+pub open spec fn env_response_within_trace<L, T>(
+  l: L, t: T, ms: ModuleSpec<L>, ac: AsyncContract<L, T>,
+  env: spec_fn(L, T) -> bool, n: nat,
+) -> bool {
+  forall |l_prime: L|
+    env_progress_n(ms.progress, l, l_prime, n, env, t)
+      ==> (ac.fulfillment)(l_prime, t)
+}
+
+pub open spec fn bounded_liveness_env_without_arrival<L, T>(
+  ms: ModuleSpec<L>, ac: AsyncContract<L, T>,
+  env: spec_fn(L, T) -> bool,
+) -> bool {
+  progress_preserves_wf(ms) &&
+  forall |t: T, l: L|
+    (ms.well_formed)(l) &&
+    (ac.acceptance)(l, t) &&
+    env(l, t) ==>
+    exists |n: nat| env_response_within_trace(l, t, ms, ac, env, n)
+}
+\end{lstlisting}
+
+\section{State}
+\label{sec:state}
+
+The entire observable state of the runtime is a single record of per-module event
+logs. Each log is a sequence of that module's events---an instance of the log model
+$L$ of Section~\ref{sec:model}---so a state records \emph{what each module has done
+so far}, and progress appends events to these logs.
+
+\begin{lstlisting}[caption={The composed runtime state. In the source, the sequence
+types appear as the aliases \texttt{ExecutorLog} / \texttt{ReactorLog} /
+\texttt{TaskLog}.},label={lst:state}]
+pub struct ComposedState {
+  pub executor_log:       Seq<ExecutorEvent>,         // Executor
+  pub reactor_log:        Seq<ReactorEvent>,          // Reactor
+  pub task_logs:          Map<TaskId, Seq<UtilityEvent>>,  // managed Tasks
+  pub injection_schedule: Seq<Task>,                  // Injection Queue (ghost)
+}
+\end{lstlisting}
+
+The four fields realize the decomposition directly:
+\begin{itemize}
+  \item \lstinline|executor_log| and \lstinline|reactor_log| are the two logs of the
+    runtime \emph{Core}---the Executor's scheduling events (spawn/pop/poll/drain) and
+    the Reactor's timer and I/O events (register/set-waker/wake).
+  \item \lstinline|task_logs| maps each live task id to that task's own log of
+    interactions with the synchronization primitives---the \emph{Tasks} managed by
+    the Core; its key set is exactly the currently-managed tasks.
+  \item \lstinline|injection_schedule| is a \emph{ghost} model of the external
+    \emph{Injection Queue}: the committed order in which submitted tasks are
+    delivered. It is fixed across progress, and the Executor's pops consume it in
+    order.
+\end{itemize}
+
+\paragraph{Identities cross module boundaries; objects do not.}
+Each object is owned by one module and stays there---task futures in the Executor
+(keyed by \lstinline|TaskId|), I/O sources and timers in the Reactor (keyed by
+\lstinline|ResourceId|)---and modules name one another's objects only by id. Hence
+the modeled state is logs of \emph{events over ids} (Listing~\ref{lst:state}): the
+objects never enter the composed state, only their identities do.
+
+\section{Progress}
+\label{sec:progress}
+
+A \emph{progress step} $s \to s'$ is the composed runtime's one-step transition---the
+$\mathit{progress}$ relation of Section~\ref{sec:model} instantiated for
+\lstinline|ComposedState| (in code, \lstinline|composed_progress|). It advances the
+executor, reactor, and per-task logs at once, and holds exactly when four conditions are
+met.
+
+\begin{enumerate}
+\item \textbf{Logs only grow.} Each log in $s'$---the executor's, the reactor's, and every
+task's---has its counterpart in $s$ as a prefix, and the injection schedule is unchanged:
+a step \emph{appends} events, it never rewrites history.
+
+\item \textbf{Each module takes its own step.} The three modules advance by their own,
+separately verified semantics: the executor sublog by one legal executor step, the reactor
+sublog by one legal reactor step, and each task's log---which records that task's use of
+the synchronization primitives---grows only when the executor polls the task (condition~3)
+while always preserving that task's own invariant (correct ownership of the timers and IO
+it registered, and its wakeup structure).
+
+\item \textbf{The modules' logs stay aligned.} The executor and reactor advance
+independently, yet they narrate the \emph{same} history from two sides; without a
+constraint their logs could drift into contradictory stories, so a step also requires:
+  \begin{itemize}
+  \item \emph{Action mediation.} Every reactor operation a task performs---registering or
+    deregistering a timer/IO resource, setting a waker---matches exactly one event on the
+    reactor side, in the same order (a one-to-one correspondence), and a resource is only
+    deregistered by the task that registered it.
+  \item \emph{Observation consistency.} Whenever the executor polls a task, that poll
+    shows up in the task's own log and the two agree---in particular, a poll returning
+    \texttt{Pending} leaves the task's log ending in \texttt{Pending}. The executor's view
+    of a task is exactly what the task recorded about itself.
+  \end{itemize}
+
+\item \textbf{Wakeups are delivered.} Progress is only useful if a wake actually reaches
+the runnable queue. This is the one place a step \emph{assumes} cross-module behavior
+rather than deriving it: when the reactor issues a wake for a task, that task lands in the
+matching pipeline (e.g.\ the \texttt{ReactorWake} queue), which a later executor drain then
+observes. So a step must carry every fired-but-unconsumed wake through to a poll:
+  \begin{itemize}
+  \item \emph{Drain delivery.} A fired wake---from a task that yielded (deferred), from an
+    expired timer or ready IO (a reactor \texttt{WakeTask}), or from a waker another task
+    invoked (cross-task)---is picked up by this step's corresponding queue drain. So
+    ``fired $\Rightarrow$ queued this step'' is built into progress, not left as a wish.
+  \item \emph{Injection delivery.} The executor's task pops follow the committed injection
+    schedule, so a submitted task is really handed to the runtime.
+  \item \emph{Park sync.} The executor and reactor agree on when the runtime blocks (equal
+    park counts), so no wake is lost across a block.
+  \end{itemize}
+We model each pipeline as a trusted FIFO boundary rather than a state object shared by two
+modules: these queues are internal to the runtime and never disturbed from outside, so
+capturing only their FIFO behavior is faithful while sidestepping the semantics of
+cross-module shared state.
+\end{enumerate}
+
+\noindent
+This step relation is the \lstinline|progress| field of the composed module spec, so the
+schema's $\mathit{progress}^{\,n}_{\mathit{asm}}$ is its $n$-fold composition.
+
+\section{Assumptions}
+\label{sec:assumptions}
+
+The theorem is conditional: it guarantees completion only when the world around the
+runtime, the user's tasks, and the Core modules all behave. These premises fall into three
+kinds.
+
+\begin{itemize}
+\item \textbf{Environment assumptions.} Facts about what happens \emph{outside} the
+runtime, which no internal logic can force. The clock keeps advancing (timestamps strictly
+increase---an idealization: the implementation clock is millisecond-granular, so runs where
+two clock reads observe the same millisecond fall outside the assumed environment; see
+\texttt{TCB\_and\_limitations.md}); every wake source a task registers eventually fires---a timer's deadline is
+reached, a registered IO becomes ready within a bounded number of polls, a waker handed to
+another task is eventually invoked; and submitted tasks are delivered to the executor in a
+fixed order. In reality any of these can fail---an awaited IO that never arrives---which is
+exactly why they must be assumed rather than proved.
+
+\item \textbf{User task-behavior assumptions.} Constraints on how the user's own tasks
+behave. The central one is that a task returns \texttt{Ready} within a bounded number of
+polls---a task that loops forever legitimately never completes, so completion cannot be
+promised without it. We also assume a task does not abandon a resource it is waiting on (it
+keeps its timer or IO registered until woken), and that task identities are unique.
+
+\item \textbf{Core invariants.} Properties the runtime's own modules maintain: correct FIFO
+scheduling and queue draining in the Executor, correct timer/IO management and timely
+wakeup in the Reactor, and correct per-task resource ownership. The liveness proof
+\emph{uses} these as given; their validity is discharged by the separately verified
+implementation crates \texttt{lion-executor} and \texttt{lion-reactor}.
+\end{itemize}
+
+\section{The End-to-End Liveness Theorem}
+\label{sec:theorem}
+
+Everything above assembles into a single statement---an instance of the
+$\mathsf{BoundedLiveness}$ schema of Section~\ref{sec:model} with the subject $T$ ranging
+over task ids. The four ingredients are exactly the pieces built up so far:
+\emph{acceptance} is ``\,$\mathit{tid}$ has been submitted to the injection queue (and not
+yet dequeued)\,''---precisely: $\mathit{tid}$ heads the committed injection schedule, so the
+very next tick delivers it (the depth-$k$ variant below lifts the head-of-schedule
+restriction); \emph{fulfillment} is ``\,$\mathit{tid}$ has been polled to
+\texttt{Ready}---it has completed\,''; the \emph{assumption} is the environment of
+Section~\ref{sec:assumptions}; and \emph{well-formedness} is the Core invariants and
+cross-module consistency of Section~\ref{sec:progress}. In words:
+
+\begin{quote}
+For every well-formed state $s$ and task $\mathit{tid}$ that has been submitted to the
+injection queue, and for every completion bound $\mathit{cap} \ge 1$ (the task returns
+\texttt{Ready} within $\mathit{cap}$ polls), there is a step budget $n$ such that
+\emph{every} run of $n$ progress steps from $s$ along which the environment keeps
+cooperating ends in a state where $\mathit{tid}$ has completed.
+\end{quote}
+
+\noindent Formally, writing $\mathit{progress}^{\,n}_{\mathsf{env}_{\mathit{cap}}}$ for the $n$-step
+reachability all of whose states satisfy the trace-level environment (Section~\ref{sec:model};
+$\mathsf{env}_{\mathit{cap}}$ strengthens the single-state $\mathsf{env}$ with the
+$\mathit{cap}$-poll completion bound and the io-readiness and cross-task-wake arrival clauses):
+\[
+\begin{aligned}
+  \forall\, s, \mathit{tid}, \mathit{cap} \ge 1.\;\;
+    & \mathsf{wf}(s) \wedge \mathsf{submitted}(s,\mathit{tid}) \wedge \mathsf{env}(s,\mathit{tid}) \\
+    & \qquad {}\Rightarrow\;
+      \exists\, n.\;\forall\, s'.\;
+      \mathit{progress}^{\,n}_{\mathsf{env}_{\mathit{cap}}}(s,s') \Rightarrow \mathsf{ready}(s',\mathit{tid}).
+\end{aligned}
+\]
+
+A few points fix the strength of the guarantee:
+\begin{itemize}
+  \item \emph{Bounded and unavoidable.} Within a single fixed horizon $n$, \emph{every}
+    cooperating continuation---not merely some---reaches \texttt{Ready}; the task cannot
+    starve while the environment behaves. The horizon is concrete: a mechanized corollary
+    (\texttt{ete\_reaches\_goal\_explicit\_bound}) exhibits
+    $n = \mathit{chunk} + \mathit{cap}\cdot\mathit{chunk}$ with
+    $\mathit{chunk} = K + B + C + \mathit{cap} + 2$, where $K$ bounds a timer's deadline in
+    scheduler rounds, $B$ bounds io readiness in polls, and $C$ bounds the runnable-queue
+    length---the three environment constants of Section~\ref{sec:assumptions}. The bound
+    mentions nothing about the goal, so it cannot be circular.
+  \item \emph{Every completion bound.} The $\mathit{cap}$ is quantified universally, so the
+    theorem covers every task that finishes in \emph{some} finite number of polls; a task
+    that never returns \texttt{Ready} is, correctly, not promised completion.
+  \item \emph{Conditional on a cooperating run.} This is a $\Box\,\mathsf{env}
+    \Rightarrow \Diamond\,\mathsf{completed}$ statement: the guarantee holds precisely along
+    runs whose every state satisfies the environment assumption.
+  \item \emph{Well-formedness is inductive.} \texttt{progress\_preserves\_wf} makes the Core
+    invariants hold at every reached state, so the precondition on $s$ propagates along the
+    whole run for free.
+  \item \emph{Arbitrary queue depth (mechanized generalization).} The submission trigger is
+    also generalized from head-of-queue to an arbitrary position: a proven variant
+    (\texttt{end\_to\_end\_liveness\_from\_depth}) covers a task at any depth $k$ of the
+    committed injection schedule with the enlarged budget
+    $n = |\mathit{schedule}| + \mathit{chunk} + \mathit{cap}\cdot\mathit{chunk}$, the delivery
+    leg being \emph{derived}---each tick performs a pop and the schedule model converts
+    $|\mathit{schedule}|$ pops into full delivery---with no new assumption, and its domain is
+    inhabited by a depth-$1$ witness run that completes both scheduled tasks in order.
+\end{itemize}
+
+\section{Proof Sketch (Every Step Mechanically Verified in Verus)}
+\label{sec:sketch}
+
+Three colours mark where each step of the argument gets its force:
+\asm{assumptions} (what we take the outside world and the user's task to do),
+\inv{invariants} (the honest bookkeeping that the reactor, the executor, and each task keep
+about themselves), and \ctr{contracts} (the promises the reactor and the executor each make
+about waking and running tasks). The three are layered: each \ctr{contract} inherits its
+precondition from the \asm{assumptions} and leans on the properties the \inv{invariants}
+supply. And those \inv{invariants} are not paper idealizations---they are exactly the
+properties checked against the runtime's own executable code, in the \texttt{lion-reactor}
+and \texttt{lion-executor} crates. The argument then reads as one story.
+
+Picture a task that has just been dropped into the injection queue. \asm{The outside world
+has committed to actually hand that task over to the runtime}, and \ctr{the executor's
+promise is that it keeps pulling tasks off the queue and running them}, so our task is
+eventually pulled out and run for the first time.
+
+Running the task has just two outcomes. Either it says ``done'', and we are finished---or it
+says ``not yet''. \inv{A well-behaved task never pauses silently; whenever it pauses it has
+arranged a way to be woken again}, and there are only a few such ways---each with its own
+route back onto the executor's waiting list:
+
+\begin{itemize}
+  \item \emph{It set a timer, or it is waiting for data to arrive.} \asm{The timer
+    eventually reaches its time, or the awaited data eventually becomes ready}; then
+    \ctr{the reactor promptly produces a wake for our task}, \inv{aimed correctly because
+    the reactor keeps track of whose wake is whose}, and that wake lands our task back on
+    the waiting list.
+  \item \emph{It is waiting for another task to signal it}---say, a message on a channel.
+    \asm{That other task eventually sends the signal}, and doing so drops our task straight
+    onto the waiting list; this route never goes through the reactor at all. \ctr{We wrap
+    this cross-task wakeup as its own promise---the same async-contract shape as the
+    reactor's and executor's---but stated at the level of the synchronization primitives, so
+    that each one (a channel, a lock, and so on) can be verified to keep it on its own.}
+  \item \emph{It simply stepped aside to let others run}---a voluntary yield. There is
+    nothing to wait for: the task is parked for a moment, and \ctr{the executor puts it back
+    onto the waiting list on the very next round}.
+\end{itemize}
+
+\noindent One subtlety hides inside ``it has arranged a way to be woken.'' A single pause
+may arrange \emph{several} ways at once---a timer \emph{and} an awaited read, say. These
+are not independent guarantees that all come true: the first one to fire wakes the task,
+and the very act of waking can retire the others (the future is polled again, drops the
+read it no longer needs, and that IO registration goes stale). So we cannot claim
+``\emph{every} source fires''---that is simply false. What we prove is the honest,
+weaker statement: \inv{whenever the task is paused, at least one of its arranged sources is
+still live}---and the proof does not care which. It \emph{selects a single still-live
+witness}---the earliest source that will actually deliver a wake---and follows only that one
+route back to the waiting list, ignoring whatever siblings may have gone stale. Concretely
+the ``still-live'' bookkeeping bakes in deregistration, and it does so differently for the
+two kinds of source, matching how each behaves at runtime. \inv{A timer must have been
+\emph{re-armed in this very poll}}---Lion re-registers timer interest on every poll---so any
+timer left over from an earlier poll simply fails to count, no history scan needed. \inv{An
+IO registration may persist across polls, so for it we scan the whole history: it counts
+only if it was registered and has \emph{not} been cancelled anywhere since.} Either way a
+stale timer or a cancelled read is not even a candidate. And if a future dropped \emph{all}
+its sources yet still paused, that would break the very invariant that a paused task always
+has a live source---so \inv{such a silently-stuck trace is not well-formed and never enters
+the theorem at all}. This is why the whole argument is phrased as ``there \emph{exists} a
+source that wakes us,'' never ``\emph{all} sources wake us.''
+
+\noindent In every one of these cases our task ends up back on the waiting list, and
+\ctr{the executor promises that anything on that list gets run again, and soon}---\inv{and
+because the list is kept in fair order, our task really does reach the front} instead of
+being skipped forever.
+
+So the task gets run a second time---and we are back at the same fork: done, or pause and
+wait for the next wake. Here is the one thing that makes the whole loop stop: \asm{the
+user's task only ever needs to be run a limited number of times before it finally says
+``done''}. Each trip around the loop delivers one more run.
+
+Putting it together: \asm{each wait-then-wake-then-run trip takes only a bounded amount of
+time}, and \asm{only a limited number of trips are ever needed}, so within a fixed budget of
+steps the task is run often enough to finish. That is exactly the top-level guarantee---a
+task dropped into the injection queue is driven all the way to completion.
+
+\section{The Async Contracts}
+\label{sec:contracts}
+
+The proof chains a small catalogue of module contracts, one per wake-or-run path. Each has
+the same shape---a trigger it accepts, and a goal it then guarantees within a bounded number
+of progress steps under that contract's assumption. In plain language:
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}l l p{7.4cm}@{}}
+\toprule
+\textbf{Layer} & \textbf{Contract} & \textbf{Guarantee (within a bounded number of steps)} \\
+\midrule
+Reactor  & \lstinline|bounded_timer_wakeup|   & Once a timer is registered, the reactor emits a wake for it. \\
+Reactor  & \lstinline|bounded_io_wakeup|      & Once a waker is set for an IO resource, the reactor emits a wake carrying that waker when the resource becomes ready. \\
+Executor & \lstinline|bounded_injection_poll| & Once a task is drawn from the injection queue, the executor polls it. \\
+Executor & \lstinline|bounded_drain_poll|     & Once a task appears in a drain of a runnable queue, the executor polls it; instantiated per queue below. \\
+         & \quad\lstinline|bounded_reactor_wake_poll| & \dots\ for the ReactorWake queue (timer / IO wakeups). \\
+         & \quad\lstinline|bounded_task_wake_poll|    & \dots\ for the TaskWake queue (cross-task wakeups). \\
+         & \quad\lstinline|bounded_deferred_poll|    & \dots\ for the Deferred queue (voluntary yields). \\
+\addlinespace
+Utility  & \lstinline|pass_waker|             & Once a task hands its waker to a synchronization primitive (a channel, a lock, \dots), that primitive invokes the waker. \\
+\bottomrule
+\end{tabular}
+\caption{The async contracts of the three layers. The end-to-end theorem chains them into
+the single guarantee walked through in Section~\ref{sec:sketch}.}
+\label{tab:contracts}
+\end{table}
+
+\section{The Invariants}
+\label{sec:invariants}
+
+These are the \inv{invariants} of the proof sketch---the honest bookkeeping each module keeps
+about itself, and the very properties checked against the executable code of
+\texttt{lion-executor} and \texttt{lion-reactor}. Each is a safety property (it holds at
+every state); together with the cross-module alignment of Section~\ref{sec:progress} they
+form the well-formedness precondition of the theorem.
+
+\paragraph{Executor (\texttt{executor\_inv}).} Every tick has a fixed shape: it parks once
+(\lstinline|tick_has_park|) and services all of its intake queues---popping the injection
+queue (\lstinline|tick_has_pop_injection|) and draining the deferred, task-wake, and
+reactor-wake queues (\lstinline|tick_has_drain_deferred|, \lstinline|tick_has_drain_task_wake|,
+\lstinline|park_drain_reactor_wake|). Scheduling is fair and sound: runnable tasks are taken
+first-in-first-out (\lstinline|fifo_task_selection|), only valid tasks are ever polled
+(\lstinline|valid_task_polling|), and any task that is runnable is actually polled within the
+tick (\lstinline|tick_polls_if_runnable|).
+
+\paragraph{Reactor (\texttt{reactor\_inv}).} The timer and IO bookkeeping stays consistent:
+each resource id names at most one live timer or IO (\lstinline|timer_reg_uniqueness|,
+\lstinline|io_reg_uniqueness|), a timer and an IO never share an id
+(\lstinline|timer_io_disjoint|), every wake traces back to a real registration
+(\lstinline|wake_has_registration|), a waker is only ever set on a still-active IO
+(\lstinline|set_waker_active_io|), and every waker is valid
+(\lstinline|timer_waker_validity|, \lstinline|io_waker_validity|). Each park cycle is
+well-formed---it stamps the current time and polls for IO exactly once
+(\lstinline|park_has_timestamp|, \lstinline|park_poll_once|), and a registered timer's
+deadline lies in the future (\lstinline|timer_deadline_future|). And, crucially for liveness,
+wakes are delivered on time: an expired timer (\lstinline|wake_on_expired|), or an IO that
+becomes ready in the awaited direction (\lstinline|wake_on_io_ready_readable| /
+\lstinline|wake_on_io_ready_writable|), produces a wake.
+
+\paragraph{Task (\texttt{utilities\_inv}).} Each task keeps two things straight about itself.
+Whenever one of its polls returns \texttt{Pending}, it has already registered an active way to
+be woken (\lstinline|wakeup_guarantee|)---the property the proof sketch leans on the moment a
+task pauses. And it owns exactly the timers and IO it registered, so only it may retire them
+(\lstinline|resource_ownership|). A note on scope: user task code is unboundedly varied and
+cannot itself be modeled, so these properties are not checked against arbitrary user futures.
+They serve instead as a \emph{specification}---a criterion that the building blocks a task is
+composed from must meet---and are discharged at the level of the individual utilities and
+primitives (a \texttt{TcpStream}, a \texttt{Signal}, a channel, \dots) rather than the user's
+program as a whole.
+
+\section{Termination: the Progress Measure}
+\label{sec:measure}
+
+Bounded liveness is at bottom a termination argument, and every termination argument needs a
+\emph{ranking function}: a quantity that provably strictly decreases and is bounded below, so
+the system cannot circle forever. Where does ours come from?
+
+\paragraph{Assumption \texorpdfstring{$+$}{+} invariant \texorpdfstring{$=$}{=} provable
+progress.} The measure is induced by two things acting together: the \asm{environment
+assumptions}---time is monotonic, a pending timer will eventually expire, the OS notifies the
+runtime of an incoming event (through \texttt{epoll}) within a symbolic bound, a remote TCP
+peer responds within a symbolic bound---and the runtime's own \inv{internal progress
+invariants}. Neither alone suffices: an assumption on its own only says the system is
+\emph{allowed} to make progress; it takes an invariant to make that progress \emph{happen} on
+a concrete step. For instance, clock monotonicity (\asm{an assumption}) says time never runs
+backwards but says nothing about how fast. Pair it with the invariant \inv{``every park cycle
+reads the clock at least once, through a syscall''} (\lstinline|park_has_timestamp|), and the
+two together drive the clock strictly forward on \emph{every} cycle. That per-cycle decrease
+is exactly what turns ``a pending timer will eventually expire'' into ``the timer's deadline
+is reached within a bounded number of cycles.'' It is the difference between the system being
+\emph{allowed} to make progress and \emph{provably} making it.
+
+\paragraph{One outer induction.} Stitched together, the whole proof rests on a single
+induction. Within one poll the chain of module contracts (Table~\ref{tab:contracts}) is
+\emph{acyclic}---a submitted or woken task is drained and then polled, and a poll that returns
+\texttt{Pending} registers a fresh wake source---so there is no circular dependence to
+untangle inside a poll. The only loop is the outer back-edge: a task returns \texttt{Pending},
+becomes runnable again, and is polled once more.
+
+\paragraph{The measure on the back-edge.} The ranking function for that loop is the maximum
+number of polls the task may still need before it completes---the bound \texttt{cap} of the
+theorem, supplied by the \asm{user task-behavior assumption}. Every trip around the back-edge
+consumes exactly one poll, so this remaining-poll count strictly decreases, and it is bounded
+below by zero. Each trip is itself bounded in steps---by the symbolic inner bounds above (a
+timer's deadline in cycles, IO readiness in polls, the queue length)---so a bounded number of
+bounded trips yields the theorem's finite horizon $n$. When the count reaches zero the task
+has returned \texttt{Ready}: it is done.
+
+\section{The Theorem Is Not Vacuous---and We Machine-Checked It}
+\label{sec:vacuity}
+
+A universally quantified implication hides a trap. ``For every state satisfying $P$, the goal
+follows'' is \emph{vacuously} true---and says nothing at all---if no state ever satisfies $P$.
+A liveness theorem whose assumptions were secretly contradictory, or that quietly covered only
+tasks that were already finished, would be exactly such an empty statement. We rule this out on
+purpose. There are two ways a proof like ours could collapse into emptiness.
+
+\paragraph{An assumption no state can satisfy.} If a single assumption is unsatisfiable, the
+whole precondition is unsatisfiable and the theorem rides on a false premise. The subtle
+offender is an assumption phrased over \emph{all possible futures}---``no matter how the run
+continues, $X$ holds''---because an adversarial continuation can usually break $X$, so no state
+satisfies it. A semantic audit went through every assumption and replaced each such
+forall-over-futures form (three families of them) with a \emph{per-state} form that a concrete
+execution can actually meet. No assumption is individually constant-false.
+
+\paragraph{A precondition met only by trivial cases.} Even with satisfiable assumptions, the
+theorem would still be hollow if the only states meeting its precondition were tasks that had
+\emph{already} completed---they reach the goal in zero steps, for free, so a theorem covering
+nothing else would be true but content-free. The interesting case is the \emph{not-ready}
+branch: a task that genuinely still has to wait.
+
+\paragraph{A concrete witness that inhabits the interesting case.} We settle both at once by
+exhibiting an actual, machine-checked execution (\lstinline|b_domain_inhabited|). It starts
+from a real state where the task has been submitted but not yet run, and is \emph{not yet
+ready}---so the not-ready branch of the domain is provably non-empty---while every part of the
+precondition (well-formedness, submission, and the environment) holds. From there the run is
+concrete: the task is polled once and returns \texttt{Pending}, a timer it set fires and wakes
+it, it is polled a second time, and it returns \texttt{Ready}. This single trace witnesses that
+the full precondition is satisfiable, that the not-ready case is non-empty, and that the goal is
+actually reachable.
+
+Together these mean the guarantee has real content: it constrains genuine, waiting executions
+rather than an empty set of states. The theorem holds because the runtime drives waiting tasks
+to completion---not because its hypotheses can never be met.
+
+\paragraph{What the witnesses do not close.} Two boundaries of this anti-vacuity argument are
+worth stating plainly. First, the witness executions assume mild lower bounds on the
+environment's symbolic constants (a queue capacity of at least one, a timer horizon of at
+least a few cycles); these constants are uninterpreted parameters of the model, so the
+witnesses establish inhabitation \emph{for every environment whose constants clear those
+bounds}, not unconditionally. Second, the theorem's conclusion quantifies over cooperating
+$n$-step runs ($\Box\,\mathsf{env}$); it does not itself assert that a cooperating run
+\emph{exists} from every qualifying state. From the witnesses' constructed states this
+existence \emph{is} proven at every step budget: extending the timer-wake witness with idle
+scheduler ticks (each an empty tick--park round that preserves the environment) yields a
+cooperating run reaching \texttt{Ready} in exactly $n$ steps for every $n \geq 2$, so the
+domain of the theorem's conclusion is inhabited at any budget it is instantiated
+with---including the proof's own $n^{*}$. What remains out of scope, deliberately, is such a
+construction from \emph{arbitrary} qualifying states rather than from the witnesses.
+
+\section{Locating Each Claim in the Code}
+\label{sec:mapping}
+
+Every claim in this document is a named Verus item; Table~\ref{tab:mapping} maps them
+(paths relative to \texttt{lion-liveness/src/}; the module contracts of
+Table~\ref{tab:contracts} live in \texttt{lion-reactor-spec/src/contracts/} and
+\texttt{executor/contracts/}).
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}p{4.6cm} p{5.2cm} p{4.6cm}@{}}
+\toprule
+\textbf{Claim} & \textbf{Verus item} & \textbf{File} \\
+\midrule
+End-to-end theorem (\S\ref{sec:theorem}) & \lstinline|end_to_end_liveness_env_N_trace| (proven by \lstinline|..._holds|) & \texttt{composed/proof/assumption\_satisfiable.rs} \\
+Arbitrary-depth variant & \lstinline|end_to_end_liveness_from_depth_trace| & \texttt{composed/proof/depth\_generalization.rs} \\
+Explicit step bound ($\mathit{chunk}+\mathit{cap}\cdot\mathit{chunk}$) & \lstinline|ete_reaches_goal_explicit_bound| & \texttt{composed/proof/assumption\_satisfiable.rs} \\
+Well-formedness preservation & \lstinline|composed_progress_preserves_wf_lemma| & \texttt{composed/proof/end\_to\_end.rs} \\
+Assumptions jointly satisfiable & \lstinline|top_theorem_precondition_satisfiable|, \lstinline|env_N_satisfiable| & \texttt{composed/proof/assumption\_satisfiable.rs} \\
+Non-vacuity: timer path & \lstinline|b_domain_inhabited| (all budgets: \lstinline|..._at_any_n|) & \texttt{composed/proof/inhabitation\_goal\_wake.rs}, \texttt{inhabitation\_budget.rs} \\
+Non-vacuity: io path & \lstinline|bio_domain_inhabited| & \texttt{composed/proof/inhabitation\_goal\_io.rs} \\
+Non-vacuity: deferred path & \lstinline|d_domain_inhabited| & \texttt{composed/proof/inhabitation\_goal\_defer.rs} \\
+Non-vacuity: cross-task path & \lstinline|t_domain_inhabited| & \texttt{composed/proof/inhabitation\_goal\_taskwake.rs} \\
+Non-vacuity: depth variant & \lstinline|depth_domain_inhabited| & \texttt{composed/proof/inhabitation\_depth.rs} \\
+Cross-task arrival clause non-vacuous & \lstinline|taskwake_arrival_within_nonvacuous_witness| & \texttt{composed/proof/inhabitation\_goal\_taskwake.rs} \\
+Drain occurrence derived & \lstinline|single_progress_has_drain_*| & \texttt{composed/proof/assumption\_satisfiable.rs} \\
+\bottomrule
+\end{tabular}
+\caption{Paper claim $\to$ Verus proof item. \texttt{./ci.sh} re-checks all of them.}
+\label{tab:mapping}
+\end{table}
+
+\section{Scope of Trust}
+\label{sec:trust}
+
+Two things are trusted rather than machine-checked, and we state them explicitly. First, the
+correspondence between the L2S model and the runtime's executable code is \emph{informal}: the
+invariants are verified against the actual \texttt{lion-reactor} and \texttt{lion-executor}
+sources, but there is no mechanized refinement proof that the event-log model captures every
+behavior of the compiled runtime. Second, the proofs rest on a trusted computing base of
+\lstinline|external_body| items---OS and syscall boundaries, waker vtables, and low-level slot
+operations---whose postconditions are trusted, not verified, plus the Verus toolchain and its
+SMT solver. The complete, per-item inventory is published as \texttt{TCB\_and\_limitations.md} at the repository
+root. Known modeling limitations (e.g.\ the resource-id allocator currently forgoes reuse,
+trading unbounded slab growth for a simpler no-reuse model) are documented there as well.
+
+\end{document}

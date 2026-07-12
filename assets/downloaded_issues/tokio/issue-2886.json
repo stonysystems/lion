@@ -1,0 +1,45 @@
+{
+  "assignees": [
+    {
+      "id": "MDQ6VXNlcjUxNDc5",
+      "login": "seanmonstar",
+      "name": "Sean McArthur"
+    }
+  ],
+  "author": {
+    "login": "leshow"
+  },
+  "body": "**Version**\r\nmaster\r\n\r\n**Platform**\r\n```\r\n❯ uname -ar\r\nLinux leshowbox 5.8.10-arch1-1 #1 SMP PREEMPT Thu, 17 Sep 2020 18:01:06 +0000 x86_64 GNU/Linux\r\n```\r\n\r\n**Description**\r\nWhile writing some new docs for `UdpSocket` I was trying to come up with an example using `Arc` for concurrent sending similarly to how `split` was used before. In doing so I found that the behavior is not the same between two bits of code that I think ought to behave the same.\r\n\r\nThis is code that behaves incorrectly:\r\n```\r\nuse tokio::{net::UdpSocket, sync::mpsc};\r\nuse std::{io, net::SocketAddr, sync::Arc};\r\n\r\n#[tokio::main]\r\nasync fn main() -> io::Result<()> {\r\n    let sock = Arc::new(UdpSocket::bind(\"0.0.0.0:8080\".parse::<SocketAddr>().unwrap()).await?);\r\n    let (tx, mut rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);\r\n\r\n    let udp_send = sock.clone();\r\n    tokio::spawn(async move {\r\n        while let Some((bytes, addr)) = rx.recv().await {\r\n            let len = udp_send.send_to(&bytes, &addr).await.unwrap();\r\n            println!(\"{:?} bytes sent\", len);\r\n        }\r\n    });\r\n\r\n    let mut buf = [0; 1024];\r\n    loop {\r\n        let (len, addr) = sock.recv_from(&mut buf).await?;\r\n        println!(\"{:?} bytes received from {:?}\", len, addr);\r\n        tx.send((buf[..len].to_vec(), addr)).await.unwrap();\r\n    }\r\n}\r\n```\r\n\r\nI expected to see this happen: it echoes responses\r\n\r\nInstead, this happened: it hangs forever\r\n\r\n---\r\n\r\nTo be clear, the original code with `split` was:\r\n```\r\n\r\n#[tokio::main]\r\nasync fn main() -> io::Result<()> {\r\n    let sock = UdpSocket::bind(\"0.0.0.0:8080\".parse::<SocketAddr>().unwrap()).await?;\r\n\r\n    let (mut udp_recv, mut udp_send) = sock.split();\r\n    let (mut tx, mut rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);\r\n\r\n    tokio::spawn(async move {\r\n        while let Some((bytes, addr)) = rx.recv().await {\r\n            let len = udp_send.send_to(&bytes, &addr).await.unwrap();\r\n            println!(\"{:?} bytes sent\", len);\r\n        }\r\n    });\r\n\r\n    let mut buf = [0; 1024];\r\n    loop {\r\n        let (len, addr) = udp_recv.recv_from(&mut buf).await?;\r\n        println!(\"{:?} bytes received from {:?}\", len, addr);\r\n        tx.send((buf[..len].to_vec(), addr)).await;\r\n    }\r\n}\r\n```\r\n\r\n---\r\n\r\nA test can be added which shows this behavior also, assuming a fix needs to be made I think this should will ensure it works:\r\n```\r\n#[tokio::test]\r\nasync fn split_chan() -> std::io::Result<()> {\r\n    // setup UdpSocket that will echo all sent items\r\n    let socket = UdpSocket::bind(\"127.0.0.1:0\").await?;\r\n    let addr = socket.local_addr().unwrap();\r\n    let s = Arc::new(socket);\r\n    let r = s.clone();\r\n\r\n    let (tx, mut rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>(1_000);\r\n    tokio::spawn(async move {\r\n        while let Some((bytes, addr)) = rx.recv().await {\r\n            s.send_to(&bytes, &addr).await.unwrap();\r\n        }\r\n    });\r\n\r\n    tokio::spawn(async move {\r\n        let mut buf = [0u8; 32];\r\n        loop {\r\n            let (len, addr) = r.recv_from(&mut buf).await.unwrap();\r\n            tx.send((buf[..len].to_vec(), addr)).await.unwrap();\r\n        }\r\n    });\r\n\r\n    // test that we can send a value and get back some response\r\n    let sender = UdpSocket::bind(\"127.0.0.1:0\").await?;\r\n    sender.send_to(MSG, addr).await?;\r\n    let mut recv_buf = [0u8; 32];\r\n    let (len, _) = sender.recv_from(&mut recv_buf).await?;\r\n    assert_eq!(&recv_buf[..len], MSG);\r\n    Ok(())\r\n}\r\n```\r\n",
+  "closed": true,
+  "closedAt": "2020-09-25T23:34:40Z",
+  "comments": [],
+  "createdAt": "2020-09-25T15:59:52Z",
+  "id": "MDU6SXNzdWU3MDkwNTE3Mzc=",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTA4OTI2",
+      "name": "M-net",
+      "description": "Module: tokio/net",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 2886,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "Concurrent sending over UDP appears to be broken on master",
+  "updatedAt": "2020-09-25T23:34:40Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/2886"
+}

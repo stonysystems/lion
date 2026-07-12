@@ -1,0 +1,244 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "htuch"
+  },
+  "body": "In Envoy today, we sometimes have network socket FDs setup with `event_assign` to watch for `EV_CLOSED | EV_ET | EV_PERSIST`. The callback function is invoked on `EV_READ` or `EV_WRITE` however, as a result of the following call chain:\r\n\r\n1. `epoll_dispatch` issuing read/write events with `EV_ET` set, see https://github.com/libevent/libevent/blob/0d2f170048a4da1fd7beb553455e1679122a3833/epoll.c#L504.\r\n\r\n2. `evmap_io_active` masking out `EV_READ` and `EV_WRITE` (since we're only looking for `EV_CLOSED`) but preserving `EV_ET` in https://github.com/libevent/libevent/blob/0d2f170048a4da1fd7beb553455e1679122a3833/evmap.c#L436.\r\n\r\n3. `event_active_nolock_` delivering an event to the callback with `res` set to `EV_ET`, despite no registered event actually firing.\r\n\r\nThis can be fixed with the following patch:\r\n```\r\ndiff --git a/evmap.c b/evmap.c\r\nindex ffc991f5..d824c062 100644\r\n--- a/evmap.c\r\n+++ b/evmap.c\r\n@@ -432,7 +432,7 @@ evmap_io_active_(struct event_base *base, evutil_socket_t fd, short events)\r\n        if (NULL == ctx)\r\n                return;\r\n        LIST_FOREACH(ev, &ctx->events, ev_io_next) {\r\n-               if (ev->ev_events & events)\r\n+               if (ev->ev_events & (events & (EV_READ | EV_WRITE | EV_CLOSED)))\r\n                        event_active_nolock_(ev, ev->ev_events & events, 1);\r\n        }\r\n }\r\n```\r\n\r\nI'm wondering if folks agree that this is a bug and whether the above patch is the correct fix?\r\n\r\nCC @asraa @adisuissa",
+  "closed": true,
+  "closedAt": "2020-05-04T21:33:58Z",
+  "comments": [
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "But then you will miss the close event, no? (FWIW if you will provide a 50L reproducer that will helps in understanding what you are trying to solve, looks that it is pretty simple to write such)",
+      "createdAt": "2020-03-26T23:01:14Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "@azat the above patch explicitly allows for `EV_CLOSED` in the whitelist of events that we mask in. I can work on a reproducer, sure.",
+      "createdAt": "2020-03-26T23:35:08Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "@azat see https://github.com/htuch/envoy/commit/0463f3b506cbfa485846d4aeece0a96c61527d7c for a minimal reproducer. You can see here that we're subscribed only for `EV_CLOSED` events, but an injected `EV_READ` triggers the callback.",
+      "createdAt": "2020-03-31T15:21:14Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": ">event_active_nolock_ delivering an event to the callback with res set to EV_ET despite no registered event actually firing.\r\n\r\nBut you are calling `event_active()` which makes an event active **manually** (so not sure how this is related to the evmap and epoll code), and it will make it active regardless it was registered with this events or not\r\n\r\nP.S. your patch will break real `EV_CLOSED` handling",
+      "createdAt": "2020-04-05T16:03:48Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "I'll work on an FD-triggered example. Can you explain how this breaks real `EV_CLOSED` handling? AFAICT, I'm just masking READ/WRITE/CLOSED events _in_ for consideration, and ignoring other things like `EV_ET`.",
+      "createdAt": "2020-04-05T23:23:08Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "Indeed, but EV_CLOSED will be delivered with EV_READ|EV_WRITE (i.e. EOF) instead, which will be filtered out before and the callback will never be triggered and you will got endless loop - [repro](https://gist.github.com/azat/797db20e950960e421e5bdc44d407eb1).",
+      "createdAt": "2020-04-06T09:55:40Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "@azat I've updated my repro at https://github.com/htuch/envoy/commit/5b5da87514e1bc57c56c523f3ef34122706cba0a, using `pipe` instead of `event_activate`.\r\n\r\nWhat I think is going on is that when we get remote hang-up/close, epoll is seeing `EPOLLERR` or `EPOLLHUP`. It then sets the events as `EV_READ | EV_WRITE` in https://github.com/libevent/libevent/blob/dd02ad9544ec857412e8a5a0462ddcb29e8045f6/epoll.c#L491. Then, steps (2) and (3) at the top-level comment happen.\r\n\r\nThere are two distinct problems I see here:\r\n1. libevent is generating a callback for remote close, whose events get masked down to empty (well, `EV_ET`, which is effectively empty), when we are subscribed to `EV_CLOSED`. This seems wrong; either a callback shouldn't happen or `EV_CLOSED` should be set.\r\n2. Envoy should be monitoring for `EV_CLOSED | EV_READ | EV_WRITE` to detect remote close. Is this specified anywhere? What's the correct way to handle all possible close scenarios?\r\n",
+      "createdAt": "2020-04-06T15:48:56Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": ">I've updated my repro at htuch/envoy@5b5da87, using pipe instead of event_activate.\r\n\r\nThanks, but my example already has everythin (AFAIU)\r\n\r\n>libevent is generating a callback for remote close, whose events get masked down to empty (well, EV_ET, which is effectively empty), when we are subscribed to EV_CLOSED. This seems wrong; either a callback shouldn't happen or EV_CLOSED should be set.\r\n\r\nIndeed, this is exactly what is happens\r\n\r\n>Envoy should be monitoring for EV_CLOSED | EV_READ | EV_WRITE to detect remote close. Is this specified anywhere? What's the correct way to handle all possible close scenarios?\r\n\r\nBut why are you bothers about the events, can you just use separate callback for the `EV_CLOSED` event?\r\n\r\nP.S. \r\n\r\n>What I think is going on is that when we get remote hang-up/close, epoll is seeing EPOLLERR or EPOLLHUP. It then sets the events as EV_READ | EV_WRITE in\r\n\r\nactually the `close` will produce `EPOLLHUP` on the other side and this behaviour, but `shutdown(SHUT_WR)` will produce `EPOLLRDHUP` and will call the callback with `EV_CLOSED|...`",
+      "createdAt": "2020-04-07T10:04:52Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "I guess this boils down to the following question:\r\n\r\n* Should libevent ever generate a callback for an event which `event_assign` has not subscribed?\r\n\r\nIn this example, we subscribe to `EV_CLOSED`, but we get an event that is not in this category (we have an event cause which is just `EV_ET`).\r\n\r\nAnother issue that I think we need to resolve is:\r\n\r\n* What is the correct set of events for the epoll engine to subscribe to in `event_assign` in order to detect a close?",
+      "createdAt": "2020-04-07T13:29:00Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": ">In this example, we subscribe to EV_CLOSED, but we get an event that is not in this category (we have an event cause which is just EV_ET).\r\n\r\nThis should not happens for real events (IOW should be fixed), but `event_active` do not check if event is subscribed to these events or not (otherwise this will be a regression).\r\n\r\nBut actually the problem here is that `EPOLLHUP` checked before `EPOLLRDHUP`, I think that this this not right and if this will be reordered you will get `EV_CLOSED` correctly, I will take a look\r\n\r\n>What is the correct set of events for the epoll engine to subscribe to in event_assign in order to detect a close?\r\n\r\nNot all backends supports close detection, so the rule of thumb is `EV_READ + read() == 0` or just block everything that does not support `*RDHUP`",
+      "createdAt": "2020-04-07T21:53:15Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "So right now I have something like [this](https://github.com/libevent/libevent/compare/master...azat:EV_CLOSED-and-EV_ET-fixes?expand=1):\r\n\r\n    https://github.com/azat/libevent.git EV_CLOSED-and-EV_ET-fixes\r\n\r\nBut there is one (and maybe not one, I saw some interesting stuff during looking into this) concern left - right now EV_CLOSED will not triggered via close(), so I'm thinking about changing it, but not sure\r\n\r\nAnyway it will be great if you can take a look into this patch set.\r\nMany thanks!",
+      "createdAt": "2020-04-08T23:26:48Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "@azat your branch resolves both my repro and the original issue, but I believe this is because no callback is occurring on the close. I'm thinking we want that, unless I'm missing something.",
+      "createdAt": "2020-04-10T17:36:52Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": ">but I believe this is because no callback is occurring on the close\r\n\r\nAlso please note the following:\r\n\r\n- > Not all backends supports close detection, so the rule of thumb is EV_READ + read() == 0 or just block everything that does not support *RDHUP\r\n\r\n- > But actually the problem here is that EPOLLHUP checked before EPOLLRDHUP, I think that this this not right and if this will be reordered you will get EV_CLOSED correctly, I will take a look\r\n\r\n- Even if backend (i.e. poll) supports it, libevent does not, this is very easy to fix, but firstly the decision should be made what to do with that [`EPOLLRDHUP` check](https://github.com/libevent/libevent/blob/57862901095a97306e74b2944d5808051f813ed5/epoll.c#L490-L497), should it be moved upper or not, since `EPOLLHUP` will be reported with `EPOLLRDHUP` if the close was done via `close` not via `shutdown` (I looked at [libuv](https://github.com/libuv/libuv/blob/v1.x/src/unix/poll.c#L47-L61) and they do not even check for `EPOLLHUP`)",
+      "createdAt": "2020-04-10T18:36:18Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "Here's our use case; we are interested in detecting remote connection close on a network socket after we've already decided to close locally. So, we're done reading/writing and actually want to apply read back pressure on the remote. \r\n\r\nWe basically just want a reliable way to learn when the close event has happened. Hence why we subscribe to `EV_CLOSED`; we assume an epoll backend which handles this correctly. We'd be happy subscribing to something like a hypothetical `EV_CLOSED | EV_ERROR` FWIW.",
+      "createdAt": "2020-04-12T23:38:39Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "Friendly ping on this.",
+      "createdAt": "2020-05-01T17:00:45Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": ">https://github.com/azat/libevent.git EV_CLOSED-and-EV_ET-fixes\r\n\r\nMerged (c10cde4c617979e951352775a9685a47bf9c6acd), but I'm not finished with this yet\r\n\r\n>We basically just want a reliable way to learn when the close event has happened. Hence why we subscribe to EV_CLOSED; we assume an epoll backend which handles this correctly. We'd be happy subscribing to something like a hypothetical EV_CLOSED | EV_ERROR FWIW.\r\n\r\nYeah, I got this, I was thinking about the backward change, but I guess I'm spending too much time for this, looking again, sorry",
+      "createdAt": "2020-05-04T21:09:02Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "azat"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "@htuch can you please verify? Thanks!",
+      "createdAt": "2020-05-04T21:34:31Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "htuch"
+      },
+      "authorAssociation": "NONE",
+      "body": "@azat that fixed it, much appreciated!",
+      "createdAt": "2020-05-05T14:18:41Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2020-03-26T19:13:20Z",
+  "id": "MDU6SXNzdWU1ODg2NjI3OTY=",
+  "labels": [],
+  "milestone": null,
+  "number": 984,
+  "reactionGroups": [
+    {
+      "content": "THUMBS_UP",
+      "users": {
+        "totalCount": 1
+      }
+    }
+  ],
+  "state": "CLOSED",
+  "title": "Phantom event callbacks with EV_ET",
+  "updatedAt": "2020-05-05T14:18:41Z",
+  "url": "https://github.com/libevent/libevent/issues/984"
+}

@@ -1,0 +1,13 @@
+diff --git a/lion-executor/src/executor/ext.rs b/lion-executor/src/executor/ext.rs
+index 51b639d1..1b76d1ca 100644
+--- a/lion-executor/src/executor/ext.rs
++++ b/lion-executor/src/executor/ext.rs
+@@ -350,7 +350,7 @@ impl Executor {
+         let ghost pre_kept = kept@;
+         let ghost pre_queue = self.local_queue@;
+         kept.push(t);
+-        self.local_queue.push_back(t);
++        // M07: enqueue dropped
+         proof {
+           assert(self.ledger.spec_has(t@));
+           assert(tid_was_injected_before(self.log@, self.log@.len() as int, t@));

@@ -1,0 +1,195 @@
+{
+  "assignees": [
+    {
+      "id": "MDQ6VXNlcjEyNTg5NA==",
+      "login": "errzey",
+      "name": "mark"
+    }
+  ],
+  "author": {
+    "login": "LudwigKnuepfer"
+  },
+  "body": "On https://github.com/libevent/libevent/tree/release-2.1.5-beta, I am trying to use `evhttp_set_bevcb` to set up a bufferevent filter.\nDoing so results in the filter callbacks not being called.\nThe http callbacks are not being called either - events just get stuck/disappear somewhere.\nWhen not inserting the filter (i.e. just returning a plain socket bufferevent), `evhttp_set_bevcb` appears to work however.\n\nCode: https://gist.github.com/LudwigOrtmann/ff255b1dcbfe53bbc934\n",
+  "closed": true,
+  "closedAt": "2015-07-08T13:53:27Z",
+  "comments": [
+    {
+      "author": {
+        "login": "errzey"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Thanks for pointing this out. This is a neat edge-case. When you setup the filter, the bufferevent control callback becomes `be_filter_ctrl`, which without filtering is `be_socket_ctrl`. The difference is: be_socket_ctrl assigns all the proper read and write events on the fd. `be_filter_ctrl` does nothing.\n\n@nmathewson does the referenced pull request make sense?\n\nMay want to do the same for GET_FD too.\n\n@LudwigOrtmann you can try out that patch https://github.com/ellzey/Libevent/commit/c2aa7dcb70635844134b54df4ccdf4d547a0b2b4 but you need to also add this to your in/out filter functions to avoid an infinite loop.\n\n``` C\nevbuffer_remove_buffer(src, dst, evbuffer_get_length(src));\n```\n",
+      "createdAt": "2015-05-06T06:36:36Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "@ellzey Thank you for the quick response!\nAn initial test worked well on my side too.\n",
+      "createdAt": "2015-05-06T11:16:27Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "Hm, there's more problems:\nData doesn't make it through to the `output_filter` while the `input_filter` works fine. It's the same when setting the `output_filter` to `NULL`.\nAlso: `NULL` as an `input_filter` does not work, i.e. no data passes through.\n",
+      "createdAt": "2015-05-06T11:57:38Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "I pushed the changes (payload in reply, `evbuffer_remove_buffer`) to the gist.\n\nInterestingly, in this reduced example the application just crashes instead of \"nothing happens\" on the output path.\n",
+      "createdAt": "2015-05-06T14:28:32Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "errzey"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Getting on a plane right now, will debug during my 7 hour flight. Thanks for waiting.\n",
+      "createdAt": "2015-05-06T18:18:14Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "Heh, have a good flight =)\n",
+      "createdAt": "2015-05-06T18:55:44Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "errzey"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Can you try out the latest master branch for the fix? (works for me). remember you need to `evbuffer_remove_buffer(src, dst, evbuffer_get_length(src));`  for both of your in and out filters to avoid an infinite loop.\n",
+      "createdAt": "2015-05-27T16:15:42Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "I'm on it.\n",
+      "createdAt": "2015-05-28T13:54:35Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "Now, the [test code](https://gist.github.com/LudwigOrtmann/ff255b1dcbfe53bbc934) does not crash anymore but still does not work.\n\nWhen opening a connection, libevent hangs, apparently waiting for a socket to become ready:\n\n```\n)                 = 7\nwrite(1, \"filter activated\\n\", 17filter activated\n)      = 17\naccept4(6, 0x7fff3891c880, [128], SOCK_CLOEXEC|SOCK_NONBLOCK) = -1 EAGAIN (Resource temporarily unavailable)\nepoll_wait(3, \n```\n\nBTW:\nThe same (waiting for socket to become ready) also happens with my own libevent based http + filter implementation which worked with the pre-patch version of libevent.\n",
+      "createdAt": "2015-05-28T14:15:58Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "This is a pre-patch strace of the relevant passage in my own http + filter implementation:\n\n```\n{{EPOLLIN, {u32=7, u64=7}}}, 32, -1) = 1\naccept4(7, {sa_family=AF_INET6, sin6_port=htons(34614), inet_pton(AF_INET6, \"::1\", &sin6_addr), sin6_flowinfo=0, sin6_scope_id=0}, [28], SOCK_NONBLOCK) = 14\nwrite(1, \"bev_cb\\n\", 7bev_cb\n)                 = 7\nwrite(1, \"created bev: 0x161cfb0\\n\", 23created bev: 0x161cfb0\n) = 23\nwrite(1, \"created fbev: 0x161f6b0\\n\", 24created fbev: 0x161f6b0\n) = 24\nepoll_ctl(3, EPOLL_CTL_ADD, 14, {EPOLLOUT, {u32=14, u64=14}}) = 0\nepoll_ctl(3, EPOLL_CTL_MOD, 14, {EPOLLIN|EPOLLOUT, {u32=14, u64=14}}) = 0\naccept4(7, 0x7fffa1d2dfc0, [128], SOCK_NONBLOCK) = -1 EAGAIN (Resource temporarily unavailable)\nepoll_wait(3, {{EPOLLIN|EPOLLOUT, {u32=14, u64=14}}}, 32, -1) = 1\nioctl(14, FIONREAD, [83])               = 0\nreadv(14, [{\"GET /fooo HTTP/1.1\\r\\nHost: local\"..., 83}], 1) = 83\n```\n",
+      "createdAt": "2015-05-28T14:21:49Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "Ah, I was confused, sorry, I did not test the master branch but the release tag...\n",
+      "createdAt": "2015-05-28T14:32:50Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "On master my test as well as my own http implementation are working.\n",
+      "createdAt": "2015-05-28T14:35:45Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "LudwigKnuepfer"
+      },
+      "authorAssociation": "NONE",
+      "body": "OK, from my point of view the bug is fixed.\nThe release tagged version still contains it, so I'm not clicking the \"close\" button...\n\nThank you for tending to this issue!\n",
+      "createdAt": "2015-05-28T14:39:40Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "errzey"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "I'm closing this issue since it's technically fixed; just have to wait for next release (I dislike having fixed things in the issues queue). I will notify you for next beta..\n",
+      "createdAt": "2015-07-08T13:53:27Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2015-05-03T10:45:51Z",
+  "id": "MDU6SXNzdWU3Mjc4ODA0MA==",
+  "labels": [],
+  "milestone": null,
+  "number": 237,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "http + filter isn't working as expected (release-2.1.5-beta)",
+  "updatedAt": "2015-07-08T13:53:27Z",
+  "url": "https://github.com/libevent/libevent/issues/237"
+}

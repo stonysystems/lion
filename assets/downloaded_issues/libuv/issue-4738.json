@@ -1,0 +1,179 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "cstavaru"
+  },
+  "body": "Hello,\n\nI have a project using Windows named pipes extensively. Sometime between release 1.48.0 and 1.49.0, there was a commit 727ee72 in which windows named pipes support (`src/win/pipe.c file`) was extensively reworked. This introduced a bug in which the `uv__pipe_read_data()` call can block in certain conditions, because it can be called by `uv__process_pipe_read_req()` when there is no data available on the pipe. More precisely, the inner call to `GetOverlappedResult(handle->handle, &req->u.io.overlapped, bytes_read, TRUE)` is the one ending up blocking   indefinitely.\n\nHow does this happen ? the  `uv__process_pipe_read_req()` mistakenly assumes that there is more data to be read when the last read amount is equal to the provided buffer size. If the provided buffer size is **exactly equal** to the size of data available on the pipe, this assumption fails, there is no data to be read yet it assumes that it is the case and attempts to process another read  request without waiting on the IOCP.\n\nMy project first reads a header size of a structure from the pipe, then it sets the buffer size to exactly the size of the rest of the structure I'm trying to read and places a new read, and this triggers the issue for subsequent read operations.\n\nAs a solution, I can't see a different one than using `PeekNamedPipe()` in `uv__process_pipe_read_req()` (like it was before that commit) to first read how much data is available, rather than assuming that there is more data to be read when `uv__pipe_read_data()`  returns 1.\n\nAs a side note, I also think that the code:\n\n`req->u.io.overlapped.hEvent = (HANDLE) ((uintptr_t) req->event_handle | 1);`\n\nshould be replaced with:\n\n`if (handle->flags & UV_HANDLE_EMULATE_IOCP) {\n  assert(req->event_handle != NULL);\n  req->u.io.overlapped.hEvent = (HANDLE) ((uintptr_t) req->event_handle | 1);\n}`\n\nin  `uv__pipe_read_data()` and in `uv__pipe_read_exactly()` inside the `pipe.c` file, because otherwise two different I/O models (true IOCP and emulated IOCP) are mixed.\n\nThank you.\n",
+  "closed": true,
+  "closedAt": "2025-07-10T13:08:37Z",
+  "comments": [
+    {
+      "author": {
+        "login": "cstavaru"
+      },
+      "authorAssociation": "NONE",
+      "body": "This issue can be closed; it was caused by calling `uv_read_start()` again inside the `uv_read_cb` read callback, which is undefined behavior according to the documentation.",
+      "createdAt": "2025-03-15T02:14:42Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "mika-fischer"
+      },
+      "authorAssociation": "NONE",
+      "body": "See https://github.com/nodejs/node/issues/58135 for an instance where this happens in nodejs, not using libuv directly. So I think this issue is not solved and should be reopened.",
+      "createdAt": "2025-05-03T09:25:49Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "bnoordhuis"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "Not unless there are clear steps to reproduce. As it stands that node issue is inactionable, therefore doubly so this one.",
+      "createdAt": "2025-05-03T16:15:26Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "mika-fischer"
+      },
+      "authorAssociation": "NONE",
+      "body": "@bnoordhuis I added a minimal reproducing example to https://github.com/nodejs/node/issues/58135.\n\nI would appreciate if you could take a look.",
+      "createdAt": "2025-05-07T16:33:21Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "vtjnash"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "Thanks, I stepped through the example code and think I see the issue: compared to your C example, there is a pair of calls inside that nodejs read callback:\n```\nuv_read_stop()\nuv_read_start()\n```\n\nInside that `uv_read_start` there is a call to `/* Do 0-read */`, which will cause any future attempts to examine the pipe to fail until this first read is completed or interrupted. We need to decide who's responsible for resuming that read: does `uv_read_start` re-arm the reader, and `uv_read_cb` reject any attempts at optimization when UV_HANDLE_READ_PENDING is set? Or does `uv_read_start` need to realize that it is being called from within `uv_read_cb` and not attempt to initiate a new read? According to the existing code, the first one (do not optimize for performance when being called from the normal nodejs code patterns) seems the intended behavior, but I don't think that is necessary best.\n\nThere was an earlier claim in this thread that the documentation for libuv claims that what nodejs does here is invalid (https://github.com/libuv/libuv/issues/4738#issuecomment-2726126003), but I don't think that is true.",
+      "createdAt": "2025-05-09T17:07:22Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "HEART",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "vtjnash"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "A minimal fix (tested against your nodejs reproducer to avoid the issue, though it essentially does just set more=0 always for the default nodejs configuration, so it is not necessarily the best performance option for nodejs):\n```diff\ndiff --git a/deps/uv/src/win/pipe.c b/deps/uv/src/win/pipe.c\nindex d05bfd28aec..8f86a1fee2e 100644\n--- a/deps/uv/src/win/pipe.c\n+++ b/deps/uv/src/win/pipe.c\n@@ -2149,7 +2149,8 @@ void uv__process_pipe_read_req(uv_loop_t* loop,\n   } else {\n     /* The zero-read completed without error, indicating there is data\n      * available in the kernel buffer. */\n-    while (handle->flags & UV_HANDLE_READING) {\n+    while (handle->flags & UV_HANDLE_READING &&\n+           !(handle->flags & UV_HANDLE_READ_PENDING)) {\n       bytes_requested = 65536;\n       /* Depending on the type of pipe, read either IPC frames or raw data. */\n       if (handle->ipc)\n```",
+      "createdAt": "2025-05-09T17:16:06Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "cstavaru"
+      },
+      "authorAssociation": "NONE",
+      "body": "> There was an earlier claim in this thread that the documentation for libuv claims that what nodejs does here is invalid ([#4738 (comment)](https://github.com/libuv/libuv/issues/4738#issuecomment-2726126003)), but I don't think that is true.\n\nThe documentation states, in the case of uv_read_cb(...): \"Trying to read from the stream again is undefined.\". I have debugged the libuv code step by step and realized that it is actually true, if you try to call uv_read_start() inside uv_read_cb() the handle is not re-added to the list of handles for GetQueuedCompletionStatus() and no one will wait for the next read operation to complete, so the loop will stall.\n",
+      "createdAt": "2025-05-09T17:36:25Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "vtjnash"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "`GetQueuedCompletionStatus` doesn't have a list of handles, so I don't quite follow that. The documentation only says that after an error, it is undefined whether the stream will have more data",
+      "createdAt": "2025-05-09T17:45:14Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "cstavaru"
+      },
+      "authorAssociation": "NONE",
+      "body": "> `GetQueuedCompletionStatus` doesn't have a list of handles, so I don't quite follow that. The documentation only says that after an error, it is undefined whether the stream will have more data\n\nI can't fully switch context to this issue due to time constraints, but: in win/core.c, around line 485 (at least in 1.50.0 that I was working with), in uv__poll(), there is a call to GetQueuedCompletionStatusEx which has a list of OVERLAPPED entries. If you call uv_read_start inside the read callback, that handle's OVERLAPPED structure will not be added to the list of entries that GetQueuedCompletionStatusEx is waiting for on the next loop. The key is to also look in the uv_run which does some calls to uv__process_reqs, besides the uv__poll. I found exactly where some handle state was overwritten after exiting the read callback (so rendering the uv_read_start inside useless) and this prevented re-adding the OVERLAPPED structure to the list, but I can't remember those details right now.\n\nInstead of calling uv_read_start in uv_read_cb, I did an uv_async_send and I called uv_read_start in the async_send's callback on a later loop cycle. The problem was completely fixed. \n\nFor me, the documentation was quite clear.\n",
+      "createdAt": "2025-05-09T18:14:23Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "vtjnash"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "The explanation still isn't quite coherent, since GetQueuedCompletionStatusEx does not have a list of OVERLAPPED entires (it waits on an IOCP handle). There is the reported bug here, where indeed the state from uv_read_start will get overwritten by uv__process_pipe_read_req upon return, leading to deadlock. The documentation is wrong if it seems to indicate uv_read_start is not able to be used in that way, and there is not supposed to be a need for a badly performing workaround like you indicate.",
+      "createdAt": "2025-05-09T19:54:37Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "mika-fischer"
+      },
+      "authorAssociation": "NONE",
+      "body": "> A minimal fix (tested against your nodejs reproducer to avoid the issue, though it essentially does just set more=0 always for the default nodejs configuration, so it is not necessarily the best performance option for nodejs):\n> [...]\n\nThanks for taking a look, figuring out the missing puzzle piece and reopening this issue @vtjnash \n\nWe have already reverted to node 22.11, which also fixes the issue. But we'd of course be interested in a proper fix.\n\nI don't know enough about node internals to contribute but AFAIUI there are potentially two issues here.\n\nFirst, in libuv, `uv_read_stop(); uv_read_start()` inside `uv_read_cb` leads to an inconsistent state. Ideally this can be fixed, but if not, maybe this should just be detected and raise an error? So that users like node can figure out that it has happened and avoid this usage pattern.\n\nBut the other issue I don't understand is: why does node stop the read in the first place? AFAIUI, the callback for the \"readable\" event is executed inside the `uv_read_cb`. If the event listener is kept in place, I don't see a reason why the read should be stopped and restarted at all.",
+      "createdAt": "2025-05-12T09:07:08Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "cstavaru"
+      },
+      "authorAssociation": "NONE",
+      "body": "> But the other issue I don't understand is: why does node stop the read in the first place? AFAIUI, the callback for the \"readable\" event is executed inside the `uv_read_cb`. If the event listener is kept in place, I don't see a reason why the read should be stopped and restarted at all.\n\nLibuv doesn't actually stop the read; but libuv users usually have a state machine that is transitioned to a \"read finished\" state when enough data has been received. They call uv_read_stop(). And then the state machine goes to a new state in which a new read is required. A new call to uv_read_start() is made, while the client may not be aware (and honestly should not be aware) that it was called from a callback in which uv_read_start() calls are \"illegal\". At least that's what happened in my original case. It did work before the major Windows pipe code rewrite done in v1.49.0 (if I remember correctly the version).\n",
+      "createdAt": "2025-05-12T12:17:41Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2025-03-15T01:09:09Z",
+  "id": "I_kwDOAOIGQ86uI5F9",
+  "labels": [],
+  "milestone": null,
+  "number": 4738,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "Hang issue in Windows named pipes support",
+  "updatedAt": "2025-07-10T13:08:37Z",
+  "url": "https://github.com/libuv/libuv/issues/4738"
+}

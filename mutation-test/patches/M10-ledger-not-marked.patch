@@ -1,0 +1,13 @@
+diff --git a/lion-executor/src/executor/ext.rs b/lion-executor/src/executor/ext.rs
+index 51b639d1..288601bf 100644
+--- a/lion-executor/src/executor/ext.rs
++++ b/lion-executor/src/executor/ext.rs
+@@ -227,7 +227,7 @@ impl Executor {
+         } else {
+           let ghost pre_ledger = self.ledger;
+           let ghost tid = task_id@;
+-          self.ledger.mark(task_id);
++          // M10: ledger mark removed
+           let some_task = Some(task);
+           self.log_pop_injection_action(&some_task);
+           proof {

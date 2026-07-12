@@ -1,0 +1,96 @@
+# Rust
+**/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock for library crates (not for binary crates)
+# Libraries should not commit Cargo.lock
+# Covers both original projects (lion-*) and Verus verification projects (lion-*-v)
+lion*/Cargo.lock
+lion*/lion*/Cargo.lock
+
+# Keep Cargo.lock for binary/benchmark crates
+# lion-benchmark/Cargo.lock (kept - it's a binary crate)
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build outputs
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Debugging
+*.dSYM/
+
+# Slides
+slides/**/node_modules/
+slides/**/.slidev/
+slides/**/dist/
+slides/**/.DS_Store
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Local experiment results (not tracked)
+tmp_result/
+
+# Python virtualenv for the micro benchmark plotting script
+.venv/
+
+# LaTeX build files
+material/Makefile
+material/*.aux
+material/*.out
+material/*.toc
+material/*.lof
+material/*.lot
+material/*.pdf
+!material/fig/**/*.pdf
+
+# Documentation build
+book/
+target/doc/
+
+# Verus verification
+**/.verus-solver-log/
+verus.config
+verus-toolchain/
+
+# Claude Code local state
+.claude/
+claude-resume.sh
+
+# OS specific
+.DS_Store
+Thumbs.db
+*.pyc
+__pycache__/
+
+# Real-world benchmark local topology (per-user; carries local credentials)
+lion-benchmark/real-world/hosts.env
+
+# Vendored real-world benchmark apps: their Cargo.lock churns on every build, so
+# ignore them — EXCEPT the rumqtt Lion port, whose lock carries the deliberate
+# `time`->0.3.36 downgrade pin required to build on zoo's older rustc (1.85).
+lion-benchmark/real-world/*/src/*/Cargo.lock
+!lion-benchmark/real-world/rumqtt/src/lion-rumqtt/Cargo.lock
+
+# Local AI-assistant working rules; not part of the published project.
+CLAUDE.md
+
+# Local operational/credential files — never commit.
+servers.txt
+
+# draw.io autosave backups
+.$*.drawio.bkp
+*.drawio.bkp

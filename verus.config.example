@@ -1,0 +1,16 @@
+# Verus Configuration File Example
+# Copy this file to verus.config and configure your local Verus installation path
+#
+# Usage:
+#   cp verus.config.example verus.config
+#   # Then edit verus.config to set your actual VERUS_PATH
+
+# Path to the Verus executable directory
+# This should point to the directory containing the 'verus' executable
+#
+# Examples for different platforms:
+# Linux:   VERUS_PATH=/home/username/verus-0.2025.11.15.db81a74-x86-linux/verus-x86-linux
+# macOS:   VERUS_PATH=/Users/username/verus-0.2025.11.15.db81a74-arm-macos/verus-arm-macos
+# Windows: VERUS_PATH=/c/Users/username/verus-0.2025.11.15.db81a74-x86-windows/verus-x86-windows
+
+VERUS_PATH=/path/to/your/verus/installation

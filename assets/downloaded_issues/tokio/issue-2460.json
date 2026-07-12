@@ -1,0 +1,115 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "najamelan"
+  },
+  "body": "## Affected Versions\r\n\r\n0.2.14 - 0.2.19\r\n\r\n## Platform\r\n\r\narch linux, but no IO involved.\r\n\r\n## Description\r\n\r\nPlease see [the issue reported first at futures-rs](https://github.com/rust-lang/futures-rs/issues/2140) because I suspected `JoinAll` was maybe at fault. \r\n\r\n`JoinHandle` often reports Pending even though it's task has already returned `Ready`. Over a collection of futures like in `LocalSet`, this can require several runs before all contained `JoinHandle`s return `Ready`. When there are more tasks in the set than `budget`, this can lead to the `JoinHandle`s never returning `Ready` and tasks awaiting them to hang.\r\n\r\nIt is possible that an inefficiency in the synchronization of `JoinHandle` also has an impact when using a threadpool, but it might not be so noticable since this just throws more resources at the problem.",
+  "closed": true,
+  "closedAt": "2020-04-30T22:19:18Z",
+  "comments": [
+    {
+      "author": {
+        "login": "hawkw"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "I _think_ I know what's up here. \r\n\r\n`LocalSet` wraps each time a local task is run in `budget`:\r\nhttps://github.com/tokio-rs/tokio/blob/947045b9445f15fb9314ba0892efa2251076ae73/tokio/src/task/local.rs#L406\r\n\r\nThis is identical to what tokio's other schedulers do when running tasks, and in theory should give each task its own budget every time it's polled. \r\n\r\n_However_, `LocalSet` is different from other schedulers. Unlike the runtime schedulers, a `LocalSet` is itself a future that's run on another scheduler, in `block_on`.  `block_on` _also_ sets a budget:\r\nhttps://github.com/tokio-rs/tokio/blob/947045b9445f15fb9314ba0892efa2251076ae73/tokio/src/runtime/basic_scheduler.rs#L131\r\n\r\nThe docs for `budget` state that:\r\nhttps://github.com/tokio-rs/tokio/blob/947045b9445f15fb9314ba0892efa2251076ae73/tokio/src/coop.rs#L73\r\n\r\nThis means that inside of a `LocalSet`, the calls to `budget` are no-ops. Instead, each future polled by the `LocalSet` is subtracting from a single global budget.\r\n\r\n`LocalSet`'s `RunUntil` future polls the provided future before polling any other tasks spawned on the local set: https://github.com/tokio-rs/tokio/blob/947045b9445f15fb9314ba0892efa2251076ae73/tokio/src/task/local.rs#L525-L535\r\n\r\nIn this case, the provided future is `JoinAll`. Unfortunately, every time a `JoinAll` is polled, it polls _every_ joined future that has not yet completed. When the number of futures in the `JoinAll` is >= 128, this means that the `JoinAll` immediately exhausts the task budget. This would, in theory, be a _good_ thing --- if the `JoinAll` had a huge number of `JoinHandle`s in it and none of them are ready, it would limit the time we spend polling those join handles. \r\n\r\nHowever, because the `LocalSet` _actually_ has a single shared task budget, this means polling the `JoinAll` _always_ exhausts the entire budget. There is now no budget remaining to poll any other tasks spawned on the `LocalSet`, and they are never able to complete.\r\n\r\nThere are two possible solutions: `LocalSet` could use `coop::limit` to poll each future with a smaller budget, ensuring no one future can exhaust the entire budget. However, this would mean that tasks on a `LocalSet`  would be given a smaller budget than comparable tasks on a regular worker or `basic_scheduler`. Alternatively, `LocalSet` could call `coop::stop` to reset the budget when it is polled. That way, each task spawned on the `LocalSet` _would_ get its own separate budget rather than starving other tasks. Since `LocalSet`s can only be polled in `block_on`, and are not competing with other tasks, I think it's correct for it to exempt itself from budgeting.",
+      "createdAt": "2020-04-29T19:03:14Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 2
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "najamelan"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "That's some awesome debugging! Thanks for looking into that. There is one thing I don't understand though:\r\n\r\n> However, because the LocalSet actually has a single shared task budget, this means polling the JoinAll always exhausts the entire budget. There is now no budget remaining to poll any other tasks spawned on the LocalSet, and they are never able to complete.\r\n\r\nFrom what I gather from the logs I posted, the inner tasks have in fact always run and completed before the outer ones. After they print, they immediately return `Poll::Ready`. However the joinhandles still said they hadn't. The outer tasks which were being polled would have completed had the JoinHandles not returned `Pending`. \r\n\r\nIt is very late here, so I have to sleep, but tomorrow I will run the test with your PR. I imagine it will solve the hang, but I suspect there is still an underlying issue that could have solved this from another angle and that may be desirable to solve as well. I'll have a look at the code of JoinHandle tomorrow as well.",
+      "createdAt": "2020-04-29T21:20:53Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "hawkw"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "When the `JoinHandle`s are polled, the budget is 0. This causes them to return `Pending` immediately, without checking if the task has actually completed.",
+      "createdAt": "2020-04-29T22:42:25Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "najamelan"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Yes, thanks. It dawned to me overnight that the budget was returning Pending, not the JoinHandle...",
+      "createdAt": "2020-04-30T05:03:21Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "createdAt": "2020-04-29T11:24:50Z",
+  "id": "MDU6SXNzdWU2MDg5NzkxNzM=",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTEwODc4",
+      "name": "M-runtime",
+      "description": "Module: tokio/runtime",
+      "color": "f7b101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTIzNTU3",
+      "name": "I-hang",
+      "description": "Program never terminates, resulting from infinite loops, deadlock, livelock, etc.",
+      "color": "e10c02"
+    }
+  ],
+  "milestone": null,
+  "number": 2460,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "LocalSet, JoinHandle and budget coming together can lead to hangs with 100% CPU usage.",
+  "updatedAt": "2020-04-30T22:19:18Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/2460"
+}

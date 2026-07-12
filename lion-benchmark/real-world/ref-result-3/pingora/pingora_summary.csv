@@ -1,0 +1,5 @@
+system,runtime,workload,metric,mean,stddev,unit
+pingora,lion,conns200,throughput,71981.05,1090.20,ops/s
+pingora,lion,conns50,throughput,73332.62,868.10,ops/s
+pingora,tokio,conns200,throughput,71937.24,433.79,ops/s
+pingora,tokio,conns50,throughput,72239.48,1386.12,ops/s

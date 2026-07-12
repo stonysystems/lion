@@ -1,0 +1,13 @@
+diff --git a/lion-timer-wheel/src/wheel.rs b/lion-timer-wheel/src/wheel.rs
+index cb62aa9d..4cd178e0 100644
+--- a/lion-timer-wheel/src/wheel.rs
++++ b/lion-timer-wheel/src/wheel.rs
+@@ -2197,7 +2197,7 @@ impl TimerWheel {
+               }
+             } else {
+               let ghost pre_wii_state = *self;
+-              self.wheel_insert_inner(rid, deadline, now);
++              // M02: cascade re-insert dropped
+               proof {
+                 // wheel_insert_inner only modifies positions and levels, not pending or deadlines
+                 // pending unchanged, positions may have rid updated

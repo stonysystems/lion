@@ -1,0 +1,12 @@
+{"test":"3503_lifecycle","runtime":"libuv-1.43.0","run":1,"outcome":"HANG","elapsed_ms":15000}
+{"test":"3503_lifecycle","runtime":"libuv-1.43.0","run":2,"outcome":"HANG","elapsed_ms":15000}
+{"test":"3503_lifecycle","runtime":"libuv-1.43.0","run":3,"outcome":"HANG","elapsed_ms":15000}
+{"test":"3503_lifecycle","runtime":"libuv-1.44.2","run":1,"outcome":"PASS","elapsed_ms":0}
+{"test":"3503_lifecycle","runtime":"libuv-1.44.2","run":2,"outcome":"PASS","elapsed_ms":0}
+{"test":"3503_lifecycle","runtime":"libuv-1.44.2","run":3,"outcome":"PASS","elapsed_ms":0}
+{"test":"combined","runtime":"libuv-1.43.0","run":1,"outcome":"HANG","elapsed_ms":15000}
+{"test":"combined","runtime":"libuv-1.43.0","run":2,"outcome":"HANG","elapsed_ms":15000}
+{"test":"combined","runtime":"libuv-1.43.0","run":3,"outcome":"HANG","elapsed_ms":15000}
+{"test":"combined","runtime":"libuv-1.44.2","run":1,"outcome":"PASS","elapsed_ms":3003}
+{"test":"combined","runtime":"libuv-1.44.2","run":2,"outcome":"PASS","elapsed_ms":3004}
+{"test":"combined","runtime":"libuv-1.44.2","run":3,"outcome":"PASS","elapsed_ms":3003}

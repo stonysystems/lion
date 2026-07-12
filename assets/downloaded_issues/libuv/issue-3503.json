@@ -1,0 +1,52 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "nickappleton"
+  },
+  "body": "**Version**: 1.43.0\r\n**Platform**: Tested on Windows 10 and OS X\r\n\r\nHello, thanks for a great library and apologies if this is noise/expected-behavior.\r\n\r\nIf `uv_close()` is invoked on a TCP socket followed by `uv_tcp_bind()` and `uv_listen()`:\r\n* `uv_tcp_bind()` and `uv_listen()` both succeed on both Windows and OS X. I expect them to fail.\r\n* On Windows, `uv_run()` will block and listen for a connection. `on_connect()` in the code to reproduce below will be called if a connection is made.\r\n* On OS X, `uv_run()` will assert with the message in the code to reproduce below.\r\n\r\n```c\r\n#include \"uv.h\"\r\n#include <stdlib.h>\r\nstatic void on_connect(uv_stream_t* server, int status) {\r\n\t/* I don't expect to ever be able to hit this, but I can */\r\n\tabort();\r\n}\r\nint main(int argc, char *argv[]) {\r\n\tuv_loop_t loop;\r\n\tuv_tcp_t tcp;\r\n\tstruct sockaddr_in addr;\r\n\r\n\tmemset(&addr, 0, sizeof(addr));\r\n\taddr.sin_addr.s_addr = htonl(INADDR_ANY);\r\n\taddr.sin_port        = htons(7999);\r\n\taddr.sin_family      = AF_INET;\r\n\r\n\tif (uv_loop_init(&loop)) abort();\r\n\tif (uv_tcp_init(&loop, &tcp)) abort();\r\n\tuv_close((uv_handle_t *)&tcp, NULL);\r\n\t/* I don't expect this to return zero */\r\n\tif (uv_tcp_bind(&tcp, (struct sockaddr *)&addr, 0)) abort();\r\n\t/* I also don't expect this to return zero */\r\n\tif (uv_listen((uv_stream_t *)&tcp, 5, on_connect)) abort();\r\n\t/* I expect this to terminate immediately, but it hangs on Windows (on OSX it fails with an assertion).\r\n\t *\r\n\t * Assertion failed: (!uv__io_active(&stream->io_watcher, POLLIN | POLLOUT)), function uv__stream_destroy, file stream.c, line 459. */\r\n\t(void)uv_run(&loop, UV_RUN_DEFAULT);\r\n\r\n\treturn 0;\r\n}\r\n```",
+  "closed": true,
+  "closedAt": "2022-06-11T04:32:09Z",
+  "comments": [
+    {
+      "author": {
+        "login": "bnoordhuis"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "That's indeed an oversight. Want to send a pull request with a fix?",
+      "createdAt": "2022-03-01T16:34:33Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "nickappleton"
+      },
+      "authorAssociation": "NONE",
+      "body": "Yes sure. Been juggling kids+work but will do this as soon as I get some downtime :)",
+      "createdAt": "2022-03-13T02:26:49Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2022-03-01T06:04:53Z",
+  "id": "I_kwDOAOIGQ85E1ogg",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw2ODM3MDEwMw==",
+      "name": "bug",
+      "description": "",
+      "color": "fc2929"
+    }
+  ],
+  "milestone": null,
+  "number": 3503,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "uv_tcp_bind and uv_listen do not fail if the handle is being closed",
+  "updatedAt": "2022-06-11T04:32:09Z",
+  "url": "https://github.com/libuv/libuv/issues/3503"
+}

@@ -1,0 +1,13 @@
+diff --git a/lion-executor/src/executor/tick.rs b/lion-executor/src/executor/tick.rs
+index 3d4bb9e6..b45f6cfa 100644
+--- a/lion-executor/src/executor/tick.rs
++++ b/lion-executor/src/executor/tick.rs
+@@ -54,7 +54,7 @@ impl Executor {
+       let ghost tid = task_id@;
+       let ghost task_view = task@;
+       self.task_slab.insert(task_id.0, task);
+-      self.local_queue.push_back(task_id);
++      // M08: enqueue dropped
+ 
+       proof {
+         let inj_pos = entry_len as int;

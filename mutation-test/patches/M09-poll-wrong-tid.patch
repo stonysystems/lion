@@ -1,0 +1,13 @@
+diff --git a/lion-executor/src/executor/tick.rs b/lion-executor/src/executor/tick.rs
+index 3d4bb9e6..2d848fb1 100644
+--- a/lion-executor/src/executor/tick.rs
++++ b/lion-executor/src/executor/tick.rs
+@@ -357,7 +357,7 @@ impl Executor {
+             assert(is_fifo_head_at(mid, mid.len() as int, task_tid));
+           }
+ 
+-          self.poll_task(task_id);
++          self.poll_task(crate::types::TaskId(task_id.0 ^ 1)); // M09
+           proof {
+             prefix_transitive(entry_log, pre, mid);
+             prefix_transitive(entry_log, mid, self.log@);

@@ -1,0 +1,83 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "gmryuuko"
+  },
+  "body": "**Version**\n\n- tokio: v1.44.0\n- rust: 1.85.0 (4d91de4e4 2025-02-17)\n\n**Platform**\n\n- Debian 12\n- Windows 11 64 bit\n\n**Description**\n\nIf a mutex is locked multiple times in a loop after using `spawn`, `block_in_place`, and `block_on`, it will get stuck on the 129th lock.\n\nThe following code always hangs when the output reaches `127: 127`, while in version 1.43 of tokio, it can loop successfully for 10,000 times.\n\n```rust\nuse tokio::sync::Mutex;\n\n#[tokio::main]\nasync fn main() {\n    let lock = Mutex::new(0);\n    tokio::spawn(async move {\n        tokio::task::block_in_place(|| {\n            tokio::runtime::Handle::current().block_on(async move {\n                for i in 0..10000 {\n                    let mut guard = lock.lock().await;\n                    println!(\"{}: {}\", i, *guard);\n                    *guard += 1;\n                }\n            })\n        });\n    })\n    .await\n    .unwrap();\n}\n```\n\nAdditionally, using `RwLock`'s `write` method also leads to the same issue.",
+  "closed": true,
+  "closedAt": "2025-03-13T08:47:55Z",
+  "comments": [
+    {
+      "author": {
+        "login": "Darksonn"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "Thank you for reporting this.\n\nThe root cause is a preexisting bug for `yield_now`, which I just opened an issue for in #7210. However, #7185 expanded this bug to also apply to anything using coop, which is why you now see it with `Mutex`.",
+      "createdAt": "2025-03-11T12:11:52Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "Darksonn"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "This was fixed in v1.44.1.",
+      "createdAt": "2025-03-13T08:48:37Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        },
+        {
+          "content": "HOORAY",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "createdAt": "2025-03-11T10:59:19Z",
+  "id": "I_kwDOBAsbdc6tdGGa",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTExOTI3",
+      "name": "M-sync",
+      "description": "Module: tokio/sync",
+      "color": "f7b101"
+    },
+    {
+      "id": "MDU6TGFiZWwyMDI1MzM4MzA4",
+      "name": "M-coop",
+      "description": "Module: tokio/coop",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 7209,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "Calling `lock().await` on `tokio::sync::Mutex` gets stuck after locking it 128 times in a loop",
+  "updatedAt": "2025-03-13T08:48:40Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/7209"
+}

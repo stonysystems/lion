@@ -1,0 +1,45 @@
+{
+  "assignees": [
+    {
+      "id": "MDQ6VXNlcjYxODA=",
+      "login": "carllerche",
+      "name": "Carl Lerche"
+    }
+  ],
+  "author": {
+    "login": "carllerche"
+  },
+  "body": "**Version**\r\nAll supported versions as of the creation of this issue.\r\n\r\n**Background**\r\n\r\nI/O resources must handle a concurrent update of readiness while an I/O operation is in progress. An I/O operation looks like this:\r\n\r\n```\r\nloop {\r\n    let readiness = io.await_readiness(interest).await;\r\n\r\n    let res = io.perform_io_op()?;\r\n\r\n    if let Ready(ret) = res {\r\n        return res;\r\n    }\r\n\r\n    io.clear_readiness(readiness);\r\n\r\n    // repeat\r\n}\r\n```\r\n\r\nA potential race condition arises if the I/O driver receives a readiness event and updates the I/O resource concurrently while the loop above is between the `perform_io_op()` and `clear_readiness` calls. A naive implementation would clear the readiness set by the I/O driver.\r\n\r\nTo prevent this issue, today, Tokio tracks an I/O driver \"tick.\" A number that increments each time the I/O driver is polled. When the I/O driver updates an I/O resource's readiness, it includes the tick at which the event was received. The `readiness` value returned by `await_readiness` includes the tick, and `clear_readiness` only clears the readiness if the I/O resource's tick matches the one included as an argument. If the ticks don't match, then the I/O has more recent readiness and should not be cleared.\r\n\r\nHowever, due to atomic space limitations in the I/O resource, we don't store the full tick value. Instead, we truncate it to `u8` and store that. This should be sufficient as the tick is only updated after a full \"reactor loop\" which includes many syscalls etc... and the pseudocode loop above is very tight. It is unlikely that a full 255 reactor loops will happen in the critical \"clear readiness\" critical path.\r\n\r\n**Issue**\r\n\r\nThe problem, however, is that if a task that holds an I/O readiness last updated on a tick (let's say tick 0) is idle. At the same time, the I/O driver does 255 cycles, and then the task *happens* to wake up for an unrelated reason and starts the loop above. In the critical section, the I/O driver happens to update the I/O resource with tick 256, which, cast to `u8` will wrap to 0, then the update will get lost due to the same reason described in the background section above.\r\n\r\nNote that this issue is not fixed by increasing the tick resolution stored in an I/O resource (to u16 or u32), it would just make it less likely to happen.\r\n",
+  "closed": true,
+  "closedAt": "2023-11-08T22:05:08Z",
+  "comments": [],
+  "createdAt": "2023-11-07T18:08:43Z",
+  "id": "I_kwDOBAsbdc52If9u",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTA4MTk1",
+      "name": "M-io",
+      "description": "Module: tokio/io",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 6133,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "io: I/O resources can hang in rare cases",
+  "updatedAt": "2023-11-08T22:05:08Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/6133"
+}

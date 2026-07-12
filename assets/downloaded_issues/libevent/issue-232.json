@@ -1,0 +1,69 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "frymode"
+  },
+  "body": "Reproducible on Ubuntu 14.10 x64 with sample/https-client from latest master:\n\n```\n$ dd if=/dev/zero of=data.bin bs=100000 count=100\n$ ./https-client -url https://posttestserver.com/post.php -ignore-cert -data data.bin\nsome request failed - no idea which one though!\nsocket error = Resource temporarily unavailable (11)\n```\n\ntcpdump shows client stopped sending data and ignores server tcp acks:\n\n```\n...\n09:24:09.867166 IP 192.168.142.128.55631 > apache2-fritz.teak.dreamhost.com.https: Flags [.], seq 95477:96937, ack 3507, win 37960, length 1460\n09:24:09.867256 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 67737, win 61320, length 0\n09:24:09.867267 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 69197, win 59860, length 0\n09:24:09.867273 IP 192.168.142.128.55631 > apache2-fritz.teak.dreamhost.com.https: Flags [.], seq 96937:98397, ack 3507, win 37960, length 1460\n09:24:09.867324 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 70657, win 58400, length 0\n09:24:09.867334 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 72117, win 56940, length 0\n09:24:09.867339 IP 192.168.142.128.55631 > apache2-fritz.teak.dreamhost.com.https: Flags [P.], seq 98397:101317, ack 3507, win 37960, length 2920\n09:24:09.867405 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 73577, win 55480, length 0\n09:24:09.867414 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 75037, win 54020, length 0\n09:24:09.867419 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 76497, win 52560, length 0\n09:24:09.867423 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 77957, win 51100, length 0\n09:24:09.867427 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 79417, win 49640, length 0\n09:24:09.867474 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 80877, win 48180, length 0\n09:24:09.867482 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 82337, win 46720, length 0\n09:24:09.867486 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 83797, win 45260, length 0\n09:24:09.867490 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 85257, win 43800, length 0\n09:24:09.867494 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 86717, win 42340, length 0\n09:24:09.867497 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 88177, win 40880, length 0\n09:24:09.867501 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 89637, win 39420, length 0\n09:24:09.867505 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 91097, win 37960, length 0\n09:24:09.867509 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 92557, win 36500, length 0\n09:24:09.867513 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 94017, win 35040, length 0\n09:24:09.867518 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 95477, win 33580, length 0\n09:24:09.867522 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 96937, win 32120, length 0\n09:24:09.867526 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 98397, win 30660, length 0\n09:24:09.867530 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 99857, win 29200, length 0\n09:24:09.867534 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 27740, length 0\n09:24:10.088962 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 29200, length 0\n09:24:10.126210 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 30660, length 0\n09:24:10.315969 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 32120, length 0\n09:24:10.316697 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 33580, length 0\n09:24:10.353220 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 35040, length 0\n09:24:10.354024 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 36500, length 0\n09:24:10.542979 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 37960, length 0\n09:24:10.543731 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 40880, length 0\n09:24:10.544695 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 42340, length 0\n09:24:10.580135 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 43800, length 0\n09:24:10.580958 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 46720, length 0\n09:24:10.581800 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 48180, length 0\n09:24:10.769875 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 49640, length 0\n09:24:10.771073 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 52560, length 0\n09:24:10.772021 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 59860, length 0\n09:24:10.807357 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 62780, length 0\n09:24:10.808213 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101317, win 64240, length 0\n09:24:59.885249 IP 192.168.142.128.55631 > apache2-fritz.teak.dreamhost.com.https: Flags [F.], seq 101317, ack 3507, win 37960, length 0\n09:24:59.885689 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [.], ack 101318, win 64239, length 0\n09:25:00.113451 IP apache2-fritz.teak.dreamhost.com.https > 192.168.142.128.55631: Flags [P.], seq 3507:4408, ack 101318, win 64239, length 901\n09:25:00.113509 IP 192.168.142.128.55631 > apache2-fritz.teak.dreamhost.com.https: Flags [R], seq 3489457069, win 0, length 0\n```\n\nSmall data in post requests does not cause any problems. Any ideas?\n",
+  "closed": true,
+  "closedAt": "2015-12-18T19:58:26Z",
+  "comments": [
+    {
+      "author": {
+        "login": "JohnOhl"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "@frymode can you try the following patch/fix https://github.com/libevent/libevent/pull/190 and see if it fixes it? I had what I think might be the same problem awhile back.\n\nThanks!!\n",
+      "createdAt": "2015-03-31T17:03:56Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "frymode"
+      },
+      "authorAssociation": "NONE",
+      "body": "@JohnOhl Your patch helped. Thanks a lot!\n",
+      "createdAt": "2015-03-31T17:14:03Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "errzey"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "This makes sense, I ran into the same sorts of situations in evhtp; I'm combing through commit logs now because I remember some odd edge cases I ran into. May or may not be relevant to libevent's implementation.\n",
+      "createdAt": "2015-06-06T11:20:14Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "errzey"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Seems to be merged. Thanks.\n",
+      "createdAt": "2015-12-18T19:58:26Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2015-03-31T16:51:48Z",
+  "id": "MDU6SXNzdWU2NTQ5NzYzNg==",
+  "labels": [],
+  "milestone": null,
+  "number": 232,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "https connection hangs when sending large data in post request",
+  "updatedAt": "2015-12-18T19:58:26Z",
+  "url": "https://github.com/libevent/libevent/issues/232"
+}

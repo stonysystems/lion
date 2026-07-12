@@ -1,0 +1,192 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "jtt"
+  },
+  "body": "**Version**\r\n\r\nWe have been able to reproduce this issue with tokio 1.38.0 and `main` as of c8f3539bc11e57843745c68ee60ca5276248f9f9. \r\nTokio 1.37.0 does not seem to be affected (but since this is really sensitive to timing, can not be sure). \r\n\r\n**Platform**\r\n\r\n * `Linux 6.1.0-22-cloud-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.94-1 (2024-06-21) x86_64 GNU/Linux `\r\n * `23.5.0 Darwin Kernel Version 23.5.0: Wed May  1 20:19:05 PDT 2024; root:xnu-10063.121.3~5/RELEASE_ARM64_T8112 arm64`\r\n\r\n**Description**\r\n\r\nTokio 1.38.0 seems to have introduced a bug which affects at least `tokio::time::timeout()`, but is likely related to `tokio::time::sleep::Sleep`. \r\n\r\nWe have a program which calls `tokio::time::timeout()` in a loop:\r\n\r\n```\r\n        loop {\r\n            let mut wait_time = { ... } // calculate delay  \r\n            if let Some(delay) = wait_time {\r\n\r\n                match tokio::time::timeout(delay, rx.recv()).await {\r\n                    Ok(val) => match val {\r\n                        None => {\r\n                            return;\r\n                        }\r\n                        Some((r, cnt)) => {\r\n                           wait_time = { .. } // recalculate delay\r\n                        }\r\n                    },\r\n                    Err(_e) => {\r\n                      wait_time = {..} // recalculate delay\r\n                   },\r\n                }\r\n            } else {\r\n                return;\r\n            }\r\n        }\r\n```\r\nwhere `rx` is a `tokio::sync::mpsc::Receiver`.  After updating to tokio 1.38.0 we observed that sometimes the program would get stuck on `timeout()`, that is, the `timeout().await` never returned.\r\n\r\nThe bug seems to trigger when\r\n\r\n a) There has been data on the channel and `rx.recv()` has returned a value and thus the underlying `Sleep` has been dropped\r\n b) We have called the `timeout()` in just the right time and the `rx` channel is empty. The `Duration` we call `timeout()` with varies from few hundred milliseconds to few seconds. \r\n\r\nIt looks like a some kind on race where we call `timeout()` just right after the previous call has returned `Ok()`. Reproducing this sometimes happens after running for few minutes and sometimes the program needs to run for hours before getting stuck. Trying to debug this by adding `println!()` etc. makes the bug harder to trigger. Same applies to adding debugs into the internals of `tokio::runtime::time` \r\n\r\nWhat I have observed is that `tokio::runtime::time::Driver::park_internal()` calculates the `expiration_time` as `None` just after we call `timeout()` and for some reason the newly added `Sleep` does not affect that and thus the `timeout().await` never returns. \r\n\r\nUnfortunately I have not been able to minimise the program into something that would reliably (or at all) trigger the bug, but please let me know if any additional information is needed and I'll try to provide that.  \r\n  ",
+  "closed": true,
+  "closedAt": "2024-07-16T17:48:53Z",
+  "comments": [
+    {
+      "author": {
+        "login": "wathenjiang"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "There is not only one reason why runtime get stuck, refer to https://github.com/tokio-rs/tokio/issues/6315. \r\nMinimising the program would be great to help us to find the true reason.",
+      "createdAt": "2024-07-11T03:39:01Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "wathenjiang"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "Can we get the stack of worker threads when the runtime get stuck?",
+      "createdAt": "2024-07-11T03:42:05Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "jtt"
+      },
+      "authorAssociation": "NONE",
+      "body": "Attached is the backtrace of all threads. This one is from M2 MacBook Air with tokio `main` `HEAD`. At this point we have only few tasks running, all of them `await`ing either to read or write from mpsc channel, except one task which is `await`ing the `timeout()` which never returns. \r\n\r\n[thread-backtrace.txt](https://github.com/user-attachments/files/16173606/thread-backtrace.txt)\r\n\r\nWe've also observed that on Linux suspending the program with `ctrl + z` on terminal and then continuing it with `fg %1` causes the `timeout()` to return and the program runs fine again (until it gets stuck on `timeout()` again). On Mac OS this does not seem to happen. \r\n ",
+      "createdAt": "2024-07-11T08:20:17Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "oherrala"
+      },
+      "authorAssociation": "NONE",
+      "body": "I've been hunting this issue with @jtt.\r\n\r\nToday I ran a test between two consecutive commits of tokio: 1st: e62c3e92692f795c407beadff580fa1380df5a26 and 2nd: 1914e1e4b9bfe6ea2d61970ec3fcf2b5d7bb0210:\r\n\r\n```\r\n[patch.crates-io]\r\n# tokio = { git = \"https://github.com/tokio-rs/tokio\", rev = \"e62c3e92692f795c407beadff580fa1380df5a26\" }\r\ntokio = { git = \"https://github.com/tokio-rs/tokio\", rev = \"1914e1e4b9bfe6ea2d61970ec3fcf2b5d7bb0210\" }\r\n```\r\n\r\nThe hang happens really fast on the 2nd commit. But doesn't appear on 1st commit (but it could of course need more time running). The 2nd commit is the merge of #6534 implementing the sharded locks on Timers. We keep running with 1st commit to see if we can reproduce the hang on it also.",
+      "createdAt": "2024-07-11T09:33:14Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "wathenjiang"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "> I've been hunting this issue with @jtt.\r\n> \r\n> Today I ran a test between two consecutive commits of tokio: 1st: [e62c3e9](https://github.com/tokio-rs/tokio/commit/e62c3e92692f795c407beadff580fa1380df5a26) and 2nd: [1914e1e](https://github.com/tokio-rs/tokio/commit/1914e1e4b9bfe6ea2d61970ec3fcf2b5d7bb0210):\r\n> \r\n> ```\r\n> [patch.crates-io]\r\n> # tokio = { git = \"https://github.com/tokio-rs/tokio\", rev = \"e62c3e92692f795c407beadff580fa1380df5a26\" }\r\n> tokio = { git = \"https://github.com/tokio-rs/tokio\", rev = \"1914e1e4b9bfe6ea2d61970ec3fcf2b5d7bb0210\" }\r\n> ```\r\n> \r\n> The hang happens really fast on the 2nd commit. But doesn't appear on 1st commit (but it could of course need more time running). The 2nd commit is the merge of #6534 implementing the sharded locks on Timers. We keep running with 1st commit to see if we can reproduce the hang on it also.\r\n\r\nCan you change the tokio dependency of `tokio` to https://github.com/wathenjiang/tokio/tree/update-next-wake-hold-locks. I hope it would help us to find out whether there is some data race issue.",
+      "createdAt": "2024-07-11T12:59:06Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "wathenjiang"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "If I understand it correctly, this hang should not be reproduced on this commit.",
+      "createdAt": "2024-07-11T13:02:34Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "oherrala"
+      },
+      "authorAssociation": "NONE",
+      "body": "> Can you change the tokio dependency of `tokio` to https://github.com/wathenjiang/tokio/tree/update-next-wake-hold-locks. I hope it would help us to find out whether there is some data race issue.\r\n\r\nThanks! I'll do a test run with this branch.\r\n\r\n```\r\n[patch.crates-io]\r\n# tokio = { git = \"https://github.com/tokio-rs/tokio\", rev = \"e62c3e92692f795c407beadff580fa1380df5a26\" }\r\n# tokio = { git = \"https://github.com/tokio-rs/tokio\", rev = \"1914e1e4b9bfe6ea2d61970ec3fcf2b5d7bb0210\" }\r\ntokio = { git = \"https://github.com/wathenjiang/tokio\", branch = \"update-next-wake-hold-locks\" }\r\n```\r\n",
+      "createdAt": "2024-07-11T13:12:41Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "jtt"
+      },
+      "authorAssociation": "NONE",
+      "body": "\r\n> Can you change the tokio dependency of `tokio` to https://github.com/wathenjiang/tokio/tree/update-next-wake-hold-locks. I hope it would help us to find out whether there is some data race issue.\r\n\r\nWe've now been running with this branch for ~20 hours on Windows, Linux and Mac OS and so far we have not observed any issues and things have been running smoothly. We'll keep testing for few days at least and let you know of any issues, but looking good so far. ",
+      "createdAt": "2024-07-12T09:13:58Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "wathenjiang"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "> We've now been running with this branch for ~20 hours on Windows, Linux and Mac OS and so far we have not observed any issues and things have been running smoothly. We'll keep testing for few days at least and let you know of any issues, but looking good so far.\r\n\r\nThank you for your feedback! It seems that there is some data race here. I will try to fix it.",
+      "createdAt": "2024-07-12T09:30:36Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 2
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "viciousstar"
+      },
+      "authorAssociation": "NONE",
+      "body": "Is 1.37.0  affected? Which version introduced this bug?",
+      "createdAt": "2024-08-08T03:10:44Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "oherrala"
+      },
+      "authorAssociation": "NONE",
+      "body": "@viciousstar My understanding is that 1.37.0 is not affected. The bug was introduced in 1.38.0 (with #6534) and then fixed in 1.38.1.",
+      "createdAt": "2024-08-08T07:30:59Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "HEART",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "createdAt": "2024-07-10T19:08:29Z",
+  "id": "I_kwDOBAsbdc6PI3kE",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTEwODc4",
+      "name": "M-runtime",
+      "description": "Module: tokio/runtime",
+      "color": "f7b101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTEzODQx",
+      "name": "M-time",
+      "description": "Module: tokio/time",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 6682,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "The `tokio::time::timeout()` does not return after timeout. ",
+  "updatedAt": "2024-08-08T07:31:00Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/6682"
+}

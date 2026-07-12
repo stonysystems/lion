@@ -1,0 +1,14 @@
+diff --git a/lion-timer-wheel/src/wheel.rs b/lion-timer-wheel/src/wheel.rs
+index cb62aa9d..c04a4431 100644
+--- a/lion-timer-wheel/src/wheel.rs
++++ b/lion-timer-wheel/src/wheel.rs
+@@ -736,7 +736,8 @@ impl TimerWheel {
+     let ghost did_remove = self.deadlines@.contains_key(rid);
+     if self.deadlines.contains_key(&rid) {
+       let deadline = *self.deadlines.get(&rid).unwrap();
+-      self.invalidate_min(deadline);
++      // M03
++    if false { self.invalidate_min(deadline); }
+       self.wheel_remove_inner(rid);
+       proof { post_wr_positions = self.positions@; }
+       self.deadlines.remove(&rid);

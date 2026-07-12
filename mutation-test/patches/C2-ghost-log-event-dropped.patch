@@ -1,0 +1,13 @@
+diff --git a/lion-reactor/src/reactor/park.rs b/lion-reactor/src/reactor/park.rs
+index 6394b599..960750fe 100644
+--- a/lion-reactor/src/reactor/park.rs
++++ b/lion-reactor/src/reactor/park.rs
+@@ -978,7 +978,7 @@ impl Reactor {
+     }
+ 
+     // park_begin
+-    self.park_begin_action(timeout);
++    // C2: park_begin event unrecorded
+     let ghost log1 = self.log@;
+     proof {
+       let e = log1[l0.len() as int];

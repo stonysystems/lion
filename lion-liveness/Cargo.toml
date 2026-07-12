@@ -1,0 +1,23 @@
+[package]
+name = "lion-liveness"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lion Team"]
+description = "Liveness verification specifications for Lion async runtime"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
+lion-utility-spec = { path = "../lion-utility/lion-utility-spec", package = "lion-utility-spec" }
+lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
+lion-executor-spec = { path = "../lion-executor-spec", package = "lion-executor-spec" }
+lion-reactor-spec = { path = "../lion-reactor-spec", package = "lion-reactor-spec" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+
+[package.metadata.verus]
+verify = true
+
+[package.metadata.verus.ide]
+extra_args = "--crate-type=lib --expand-errors"

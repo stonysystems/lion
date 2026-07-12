@@ -1,0 +1,114 @@
+{
+  "assignees": [],
+  "author": {
+    "login": "nathaniel-daniel"
+  },
+  "body": "**Version**\r\ntokio v1.19.2, tokio master (4daeea8cad1ce8e67946bc0e17d499ab304b5ca2)\r\n\r\n**Platform**\r\nWindows 10 64 bit\r\n\r\n**Description**\r\nAttempting to resubscribe to a closed broadcast receiver will hang on calls to `recv`.\r\n\r\nI tried this code:\r\n`Cargo.toml`:\r\n```toml\r\n[package]\r\nname = \"tokio-broadcast-bug\"\r\nversion = \"0.0.0\"\r\nedition = \"2021\"\r\n\r\n[dependencies]\r\ntokio = { version = \"1.19.2\", features = [\"full\"] }\r\n```\r\n`main.rs`:\r\n```rust\r\n#[tokio::main]\r\nasync fn main() {\r\n    let (tx, rx) = tokio::sync::broadcast::channel::<u32>(4);\r\n    drop(tx);\r\n\r\n    let mut rx_clone = rx.resubscribe();\r\n    drop(rx);\r\n\r\n    loop {\r\n        match rx_clone.recv().await {\r\n            Ok(msg) => {\r\n                println!(\"{}\", msg);\r\n            }\r\n            Err(tokio::sync::broadcast::error::RecvError::Closed) => {\r\n                println!(\"Closed\");\r\n                break;\r\n            }\r\n            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {\r\n                println!(\"Lagged by {n} messages\");\r\n            }\r\n        }\r\n    }\r\n\r\n    println!(\"Done\");\r\n}\r\n```\r\nI expected to see this happen: \r\nThe loop should exit.\r\n\r\nInstead, this happened: \r\nThe program hangs indefinitely. \r\n\r\nFurthermore, replacing the loop with a call to `try_recv` yields an `Empty` error instead of a `Closed` error.\r\n",
+  "closed": true,
+  "closedAt": "2022-08-10T19:30:07Z",
+  "comments": [
+    {
+      "author": {
+        "login": "Darksonn"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "That certainly does sound like a bug.",
+      "createdAt": "2022-07-09T15:41:24Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "nathaniel-daniel"
+      },
+      "authorAssociation": "NONE",
+      "body": "I don't really understand everything about this channel, but shouldn't [`new_receiver`](https://github.com/tokio-rs/tokio/tree/ad942de2b738c3e2b99cebb0bf71b121980de194/tokio/src/sync/broadcast.rs#L661) update the next field similarly to how `recv_ref` does so [here](https://github.com/tokio-rs/tokio/blob/ad942de2b738c3e2b99cebb0bf71b121980de194/tokio/src/sync/broadcast.rs#L836-L856), by including an adjust value to account for the close message? Making this change seems to fix my simple example, but I don't know if it works in a larger project or if it introduces any other bugs; I was hoping someone more knowledgeable could take a look.",
+      "createdAt": "2022-07-12T04:21:02Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "Darksonn"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "The index not being adjusted for the close message does indeed appear to be the correct answer.",
+      "createdAt": "2022-07-12T08:12:22Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "hds"
+      },
+      "authorAssociation": "CONTRIBUTOR",
+      "body": "I came up with a solution for this issue which is a bit more drastic that I originally anticipated (I'm removing `closed` flag in the slot and just relying on the channel level `closed` flag).\r\n\r\n@nathaniel-daniel Since it was your observation that the `next` flag on the resubscribed receiver that was incorrect, perhaps you'd be interested in looking at the solution? I probably wouldn't have arrived at it without your comments!",
+      "createdAt": "2022-07-26T16:17:56Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "author": {
+        "login": "nathaniel-daniel"
+      },
+      "authorAssociation": "NONE",
+      "body": "Sorry for the rate reply, I've been busy. Thanks for the fix @hds! I just tested and it seems to work great on a simple example and a small sized project I'm working on. I was writing up a PR to do essentially what you did, but it stalled as I tried to figure out the ramifications of removing the double closed flags, performance or otherwise; I couldn't figure out why the two closed flags were even introduced in the first place. Thanks for the PR!",
+      "createdAt": "2022-08-11T03:37:04Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "createdAt": "2022-07-07T19:32:25Z",
+  "id": "I_kwDOBAsbdc5NXZ0H",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTExOTI3",
+      "name": "M-sync",
+      "description": "Module: tokio/sync",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 4814,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "Resubscribing to a closed broadcast receiver will hang on a call to `recv`",
+  "updatedAt": "2022-08-11T03:37:05Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/4814"
+}

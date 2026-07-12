@@ -1,0 +1,88 @@
+{
+  "assignees": [
+    {
+      "id": "MDQ6VXNlcjI3OTY0NjY=",
+      "login": "hawkw",
+      "name": null
+    }
+  ],
+  "author": {
+    "login": "alecmocatta"
+  },
+  "body": "**Version**\r\n\r\n`0.3.3` (current latest)\r\n\r\n**Platform**\r\n\r\nTested on Linux and macOS\r\n\r\n**Description**\r\n\r\nThis code hangs, whereas I would expect it to complete. The `LocalSet` is being awaited upon, therefore I would expect the spawned task to complete.\r\n\r\n```rust\r\nuse futures::{\r\n    future::{pending, ready},\r\n    FutureExt,\r\n};\r\nuse tokio::task::LocalSet;\r\n\r\n#[tokio::main]\r\nasync fn main() {\r\n    let ls = LocalSet::new();\r\n    futures::select! {\r\n        _ = ls.run_until(pending::<()>()).fuse() => unreachable!(),\r\n        ret = async { ls.spawn_local(ready(())).await.unwrap() }.fuse() => ret\r\n    }\r\n}\r\n```\r\n\r\n([Playground](https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=69699b05e5a2253a386fde6ba3796f50))\r\n",
+  "closed": true,
+  "closedAt": "2021-01-09T10:46:52Z",
+  "comments": [
+    {
+      "author": {
+        "login": "Darksonn"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "I played a bit around with this. The cause appears to be the following:\r\n\r\n1. The `select!` polls the first branch, resulting in a `run_until` call that's sleeping.\r\n2. The `select!` polls the second branch, spawning the future onto the local set.\r\n3. But `run_until` is sleeping and the spawn does not emit a wake-up to it, so it keeps sleeping.\r\n\r\nIf you change it to spawn first, or for `run_until` to have a wake-up after the spawn, then it works.",
+      "createdAt": "2020-11-11T10:26:53Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "carllerche"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "Seems like a spawn should result in waking the local set?. cc @hawkw ",
+      "createdAt": "2020-11-12T20:46:05Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    },
+    {
+      "author": {
+        "login": "hawkw"
+      },
+      "authorAssociation": "MEMBER",
+      "body": "> Seems like a spawn should result in waking the local set?. cc @hawkw\r\n\r\nThat seems right, we can do that!",
+      "createdAt": "2020-11-12T21:47:28Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": []
+    }
+  ],
+  "createdAt": "2020-11-10T17:29:24Z",
+  "id": "MDU6SXNzdWU3NDAxMDQxMzk=",
+  "labels": [
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxODg=",
+      "name": "C-bug",
+      "description": "Category: This is a bug.",
+      "color": "f5f1fd"
+    },
+    {
+      "id": "MDU6TGFiZWw0Mzk4OTcxOTE=",
+      "name": "E-help-wanted",
+      "description": "Call for participation: Help is requested to fix this issue.",
+      "color": "02E10C"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTAxMjg2",
+      "name": "A-tokio",
+      "description": "Area: The main tokio crate",
+      "color": "f7e101"
+    },
+    {
+      "id": "MDU6TGFiZWwxOTkzNTEyMzI4",
+      "name": "M-task",
+      "description": "Module: tokio/task",
+      "color": "f7b101"
+    }
+  ],
+  "milestone": null,
+  "number": 3117,
+  "reactionGroups": [],
+  "state": "CLOSED",
+  "title": "Hang with LocalSet",
+  "updatedAt": "2021-01-09T10:46:52Z",
+  "url": "https://github.com/tokio-rs/tokio/issues/3117"
+}

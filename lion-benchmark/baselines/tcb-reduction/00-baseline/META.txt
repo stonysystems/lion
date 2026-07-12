@@ -1,0 +1,3 @@
+baseline commit: 9319442338d9c604f3f7a6b848890c91d36419f1
+config: micro DURATION=3 RUNS=5; stress lion-only REPS=30 TIMEOUT=15s
+note: micro-run1-contaminated overlapped with stress baseline during its timer_st section (13:21-13:25); official baseline is micro/ (clean rerun)

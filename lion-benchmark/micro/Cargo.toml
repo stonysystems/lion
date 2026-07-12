@@ -1,0 +1,31 @@
+[package]
+name = "lion-micro-bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "micro-tcp-echo"
+path = "src/bin/micro_tcp_echo.rs"
+
+[[bin]]
+name = "micro-fs"
+path = "src/bin/micro_fs.rs"
+
+[[bin]]
+name = "micro-timer"
+path = "src/bin/micro_timer.rs"
+
+[dependencies]
+lion = { path = "../../lion", package = "lion" }
+tokio = { version = "1.42", features = ["full"] }
+monoio = { version = "0.2", features = ["macros"] }
+clap = { version = "=4.5.23", features = ["derive"] }
+clap_lex = "=0.7.4"
+hdrhistogram = "7"
+futures = "0.3"
+tempfile = "3"
+
+[profile.release]
+debug = 1
+lto = "fat"
+codegen-units = 1
