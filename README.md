@@ -100,6 +100,19 @@ If a relative conclusion above does not hold on your hardware, that is a
 finding we want to hear about; absolute-value differences from the paper or
 from `ref-result/` are not.
 
+**On "who is slightly ahead" statements.** The point these experiments
+establish is that Lion and Tokio perform comparably; within that parity,
+*which* runtime comes out a few percent ahead on any particular cell
+depends on the machine and its state, and genuinely flips between hosts
+and collection batches. A few fine-grained statements of this kind in the
+pre-camera-ready evaluation text (e.g., the ordering at specific timer
+concurrencies, Monoio's relative positioning, the rumqtt Fanin direction)
+encode one earlier batch's outcome and will be aligned with the reference
+dataset in the camera-ready. If your run reproduces near-parity but flips
+such an ordering, you are seeing expected behavior, not a reproduction
+failure — the machine-independent claims are the relative conclusions
+listed above.
+
 ## Verifying the proofs
 
 First install the toolchain the proofs need with the top-level `./setup.sh` — it
