@@ -1,6 +1,6 @@
-# micro reference dataset #3 (post-remediation validation run)
+# micro reference dataset (post-remediation)
 
-Third reference batch, collected on the paper anchor machine (zoo-002, AMD
+The repository's reference batch (historically the third collection batch), collected on the paper anchor machine (zoo-002, AMD
 EPYC 7702P) from a **fresh GitHub clone** at commit `72c44640` — the first
 batch on the code that includes the evaluation-audit remediation (the Lion
 facade's `MultiRuntime` workers now park instead of busy-spinning; the
@@ -13,7 +13,7 @@ STAGES=micro ./collect_paper_data.sh
 
 ## Consistency with the earlier batches
 
-Trim-2 means agree with `../ref-result-2` per-cell across every primitive:
+Trim-2 means agree with the pruned batch #2 per-cell across every primitive:
 
 | file | cells | ref3/ref2 range |
 |---|---|---|

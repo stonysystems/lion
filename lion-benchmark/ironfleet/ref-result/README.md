@@ -1,6 +1,6 @@
-# ironfleet reference dataset #3 (post-remediation validation run)
+# ironfleet reference dataset (post-remediation)
 
-Third reference batch, collected on the paper topology (3 replicas on zoo-002,
+The repository's reference batch (historically the third collection batch), collected on the paper topology (3 replicas on zoo-002,
 client on zoo-004) from a **fresh GitHub clone** at commit `72c44640`,
 including a from-scratch C#/Dafny build, via:
 
@@ -16,7 +16,7 @@ record the marker's absence — the C# `IoScheduler` arm).
 
 ## Consistency with the earlier batches
 
-| Metric | ref-result | ref-result-2 | this batch |
+| Metric | batch #1 (pruned) | batch #2 (pruned) | this batch (`ref-result/`) |
 |---|---|---|---|
 | Lion unpin req/s | 3275 | 3244 | 3273 |
 | Lion 1core req/s | 1970 | 1985 | 2005 |

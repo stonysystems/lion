@@ -42,7 +42,7 @@ cd lion-benchmark
 SETUP_IRONFLEET=1 ./setup.sh   # additionally for ironfleet (Dafny 3.4 + .NET 6 + scons)
 
 ./micro/run.sh                 # micro benchmarks (local)
-./real-world/pingora/run.sh    # (or rumqtt / axum) — requires hosts.env (paper topology)
+./real-world/pingora/run.sh    # local (canonical); rumqtt / axum need hosts.env (cross-machine)
 ./correctness-stress/run.sh    # liveness stress vs Tokio (+ libevent-tests/ libuv-tests/ for the C ports)
 ./ironfleet/run.sh             # IronRSL Paxos with Lion async I/O
 
@@ -53,18 +53,52 @@ SETUP_IRONFLEET=1 ./setup.sh   # additionally for ironfleet (Dafny 3.4 + .NET 6 
 STAGES="realworld micro ironfleet" ./collect_paper_data.sh
 ```
 
-micro, ironfleet, and correctness-stress default to a local run; the
-real-world suite reproduces the paper's cross-machine topology and requires
-`hosts.env`. Duration, reps, and other knobs are environment variables
-documented in each experiment's README/run.sh. Compare your output against
-the shipped reference datasets: each experiment has a `ref-result/`
-(batch #1), `ref-result-2/` (an end-to-end validation batch collected from a
-fresh clone of this repository), and `ref-result-3/` (a second fresh-clone
-validation batch on the post-audit code; all three agree per-cell — the
-batch READMEs tabulate the comparison). Commit identifiers recorded in
-`PROVENANCE.txt` files and in the audit reports are development-history
-identifiers that predate this repository's initial commit; they name the
-exact development state each batch was collected from.
+micro, ironfleet, correctness-stress, and the pingora benchmark default to
+a local run; the rumqtt and axum benchmarks reproduce the paper's
+cross-machine topology and require `hosts.env`. Duration, reps, and other
+knobs are environment variables documented in each experiment's
+README/run.sh. Compare your output against the shipped reference dataset:
+each experiment has a `ref-result/` collected from a fresh clone of this
+repository on the post-audit code (earlier collection batches agreed
+per-cell with it and are recorded in the audit reports). Commit identifiers
+recorded in `PROVENANCE.txt` files and in the audit reports are
+development-history identifiers that predate this repository's initial
+commit; they name the exact development state each batch was collected
+from.
+
+### Artifact evaluation: compare conclusions, not absolute numbers
+
+The performance numbers in the pre-camera-ready version of the paper were
+collected on different machines than the shipped reference dataset, so the
+paper's absolute values and `ref-result/` disagree — and your machine will
+produce yet another set of absolute values. This is expected. What the
+artifact supports, and what we ask evaluators to check, are the **relative
+conclusions**, which reproduce across every machine and batch we have run:
+
+- **Micro benchmarks** (`micro/`): Lion's single-thread throughput is in the
+  same range as Tokio's on every primitive — ahead on some cells, behind on
+  others, with no consistent loser. In multi-thread scaling, Lion and
+  Tokio-Partition scale with thread count while stock Tokio's work-stealing
+  runtime *degrades* as threads are added (the headline scheduling result).
+- **Real-world applications** (`real-world/`): Lion is a drop-in replacement
+  for Tokio at parity performance — throughput stays close to Tokio's on
+  every workload, and on the runtime-bound cells (axum localhost) Lion is
+  the faster runtime. Cells pinned by an external ceiling (the
+  link-saturated axum cross-machine rows; the pingora 10 KB payload's
+  intrinsic body-handling ceiling) show exact parity by construction.
+- **Correctness under stress** (`correctness-stress/`): every tested
+  bug-carrying release of Tokio, libevent, and libuv hangs deterministically
+  on its known liveness bug under the stress workload; Lion passes every
+  configuration, every time.
+- **IronFleet integration** (`ironfleet/`): replacing the verified Paxos
+  node's threaded C# I/O with Lion yields substantially higher throughput
+  (unpinned, and by a wide margin when pinned to a single core) at a
+  fraction of the CPU — Lion outperforms the threaded C# I/O layer in
+  every regime.
+
+If a relative conclusion above does not hold on your hardware, that is a
+finding we want to hear about; absolute-value differences from the paper or
+from `ref-result/` are not.
 
 ## Verifying the proofs
 

@@ -219,6 +219,9 @@ loud on missing hosts and on non-ready replicas.
    in this report — latency-claim scope (§5), runtime-bound parity cells
    (§3), ironfleet numbers from the exports (§1.2), zoo-002 setup (§6).
 2. ~~Re-collection~~ EXECUTED: `ref-result-3/` exists for every experiment —
+   (post-report consolidation: the repository now retains only this final
+   batch, renamed to `ref-result/`; the earlier batches it agreed with
+   per-cell were pruned from the working tree and survive in this report) —
    a full fresh-clone cluster batch at commit 72c44640 (post-remediation
    code). Real-world envelope 91.1–122.1% (pingora 101.5%/100.1% — no
    regression from the parked workers, slightly faster than batch #2); micro

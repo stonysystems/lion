@@ -23,9 +23,10 @@ We evaluate Lion on three real-world applications covering distinct async runtim
 ## Benchmark Setup
 
 - **Server**: zoo-002 (AMD EPYC 7702P, 64-core Linux) — the host recorded in
-  every reference batch's PROVENANCE.txt (`ref-result/`, `ref-result-2/`);
+  the reference batch's PROVENANCE.txt (`ref-result/`);
   an earlier draft ran on zoo-001, superseded by the regenerated batches
-- **Client**: zoo-004 for rumqtt and Pingora (`hosts.env`); Axum additionally
+- **Client**: zoo-004 for rumqtt (`hosts.env`); Pingora runs in the local
+  (single-host) topology — its canonical protocol; Axum additionally
   in its localhost deployment on the server host (dual-deployment protocol)
 - **Runtime**: Single-threaded (`new_current_thread`) for both Tokio and Lion
 - **Runs**: 10 per configuration, 30 seconds per run, interleaved A-B

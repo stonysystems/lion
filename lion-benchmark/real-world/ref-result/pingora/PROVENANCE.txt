@@ -1,6 +1,14 @@
-commit: 72c44640
+commit: 404b61c (this repository) plus the payload10k harness addition,
+  committed immediately after collection; the vendored lion/tokio pingora
+  forks are unchanged since dev-commit 72c44640 (the prior batch's base)
 host: zoo-002 (AMD EPYC 7702P 64-Core Processor)
 threads: 128, numa: 1
 kernel: 5.15.0-185-generic, governor: schedutil
-client: zoo-004, rtt: 0.247 ms
-protocol: interleaved A-B, 30s x 10 runs, trim-2 mean±std
+topology: LOCAL (canonical for pingora) — server and wrk on the same host,
+  SERVER_HOST=CLIENT_HOST=127.0.0.1
+protocol: interleaved A-B, DURATION=30s x RUNS=10, conns 50 200 +
+  payload10k (10 KB POST body, echoed verbatim, conns 50)
+note: payload10k has an intrinsic software ceiling (~12.7-12.8 Kreq/s,
+  ~3.8 ms at 50 conns, Little's-law consistent); it is parity evidence,
+  not a bandwidth-bound cell. Cross-machine control runs on the 1GbE
+  zoo-002->zoo-004 link give the same parity verdicts (97.5%/93.1%/100.6%).

@@ -2,13 +2,12 @@ use vstd::prelude::*;
 
 verus! {
 
-// Paper reference: Listing 1 (Module specification structure)
-// specification.tex lines 95-100
+// Paper reference: the liveness-framework figure (§4, lst:liveness-framework),
+// which presents this struct under pedagogical field names:
 //
-// struct ModuleSpec<L> {
-//   well_formed: spec fn(L) -> bool,
-//   progress: spec fn(L, L) -> bool,
-// }
+//   paper `progress_inv` = `well_formed` here (the inductive progress invariant)
+//   paper `step`         = `progress` here (one driving cycle appended to the log)
+//   paper `step_n`       = `progress_n` / `env_progress_n` below
 #[verifier::reject_recursive_types(L)]
 pub struct ModuleSpec<L> {
   pub well_formed: spec_fn(L) -> bool,

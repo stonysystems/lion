@@ -1,10 +1,10 @@
-# correctness-stress reference dataset #3 (post-remediation validation run)
+# correctness-stress reference dataset (post-remediation)
 
-Third reference matrix, collected on zoo-002 from a **fresh GitHub clone** at
+The repository's reference matrix (historically the third collection batch), collected on zoo-002 from a **fresh GitHub clone** at
 commit `72c44640` — the first stress batch on the reworked Lion facade
 (`MultiRuntime` workers park on a `lion::sync::oneshot` shutdown receiver
 instead of busy-spinning a self-waking future). Verdicts are identical to
-`../ref-result` and `../ref-result-2`:
+the pruned batches #1 and #2 (recorded in the evaluation-audit report):
 
 | runtime | current | multi |
 |---|---|---|
