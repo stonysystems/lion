@@ -224,8 +224,8 @@ names the bundled solver version explicitly (Z3 4.12.5) in the trust section.
   published from a fresh initial commit; untracked per-user operational files
   in the working directory (the benchmark scripts read a gitignored local
   configuration) are excluded at packaging time.
-- LICENSE: present — LICENSE-APACHE + LICENSE-MIT at the repo root, matching
-  Cargo.toml's `MIT OR Apache-2.0`.
+- LICENSE: present — MIT `LICENSE` at the repo root, matching Cargo.toml's
+  `MIT`.
 - Junk sweep: `cl/` is gone; remaining in working dir: `__pycache__/`
   (gitignored), `count_all.py`, `count_lines.py`, `HANG_FIXING_STORY.md` —
   decide keep/drop at packaging time.

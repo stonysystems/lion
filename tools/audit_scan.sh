@@ -58,7 +58,7 @@ hits=$(grep -rinE "password|passwd|BEGIN (RSA|OPENSSH)" --include="*.txt" --incl
 [ -n "$hits" ] && flag "possible secrets:" && echo "$hits" | head -5
 
 echo "== LICENSE =="
-[ -f LICENSE ] || [ -f LICENSE.md ] || { [ -f LICENSE-MIT ] && [ -f LICENSE-APACHE ]; } || flag "LICENSE file missing"
+[ -f LICENSE ] || [ -f LICENSE.md ] || flag "LICENSE file missing"
 
 echo "== plain-build warning budget =="
 for c in lion-reactor lion-executor; do

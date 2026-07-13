@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Lion Team"]
 description = "Lion async runtime backed by formally verified components (lion-executor + lion-reactor)"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [dependencies]
 lion-executor = { path = "../lion-executor", package = "lion-executor" }

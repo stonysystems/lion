@@ -331,8 +331,8 @@
       public repository is published from a fresh initial commit** (squashed from the
       current state; the development repo's history is not rewritten). Rotate any
       operational credential that was ever used during development before release.
-- [ ] **LICENSE files** present (LICENSE-APACHE + LICENSE-MIT, matching Cargo.toml's
-      `MIT OR Apache-2.0`) and included in the packaged artifact.
+- [ ] **LICENSE file** present (MIT `LICENSE`, matching Cargo.toml's `MIT`) and
+      included in the packaged artifact.
 - [ ] Clean up junk directories/files unrelated to the project (`cl/`, `__pycache__/`,
       personal scripts); double-check .gitignore; check the git history for internal
       records that need squashing.

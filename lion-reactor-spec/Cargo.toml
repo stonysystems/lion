@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Lion Team"]
 description = "Shared reactor event-log vocabulary for Lion crates (event enums, log predicates, invariant templates, bounded contracts, io anchor bridge)"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [dependencies]
 vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
