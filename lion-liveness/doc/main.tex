@@ -10,6 +10,10 @@
 \usepackage{array}
 \usepackage{hyperref}
 \usepackage{geometry}
+% Breakable inline code for table cells: typewriter font, line breaks
+% allowed after underscores, slashes, and dots (long Verus identifiers
+% and file paths otherwise overflow fixed-width columns).
+\DeclareUrlCommand\vcode{\urlstyle{tt}\def\UrlBreaks{\do\_\do\/\do\.}}
 \geometry{margin=1in}
 \setcounter{tocdepth}{1}
 
@@ -620,22 +624,25 @@ Table~\ref{tab:contracts} live in \texttt{lion-reactor-spec/src/contracts/} and
 \begin{table}[ht]
 \centering
 \small
-\begin{tabular}{@{}p{4.6cm} p{5.2cm} p{4.6cm}@{}}
+\begin{tabular}{@{}
+    >{\raggedright\arraybackslash}p{0.27\textwidth}
+    >{\raggedright\arraybackslash}p{0.35\textwidth}
+    >{\raggedright\arraybackslash}p{0.30\textwidth}@{}}
 \toprule
 \textbf{Claim} & \textbf{Verus item} & \textbf{File} \\
 \midrule
-End-to-end theorem (\S\ref{sec:theorem}) & \lstinline|end_to_end_liveness_env_N_trace| (proven by \lstinline|..._holds|) & \texttt{composed/proof/assumption\_satisfiable.rs} \\
-Arbitrary-depth variant & \lstinline|end_to_end_liveness_from_depth_trace| & \texttt{composed/proof/depth\_generalization.rs} \\
-Explicit step bound ($\mathit{chunk}+\mathit{cap}\cdot\mathit{chunk}$) & \lstinline|ete_reaches_goal_explicit_bound| & \texttt{composed/proof/assumption\_satisfiable.rs} \\
-Well-formedness preservation & \lstinline|composed_progress_preserves_wf_lemma| & \texttt{composed/proof/end\_to\_end.rs} \\
-Assumptions jointly satisfiable & \lstinline|top_theorem_precondition_satisfiable|, \lstinline|env_N_satisfiable| & \texttt{composed/proof/assumption\_satisfiable.rs} \\
-Non-vacuity: timer path & \lstinline|b_domain_inhabited| (all budgets: \lstinline|..._at_any_n|) & \texttt{composed/proof/inhabitation\_goal\_wake.rs}, \texttt{inhabitation\_budget.rs} \\
-Non-vacuity: io path & \lstinline|bio_domain_inhabited| & \texttt{composed/proof/inhabitation\_goal\_io.rs} \\
-Non-vacuity: deferred path & \lstinline|d_domain_inhabited| & \texttt{composed/proof/inhabitation\_goal\_defer.rs} \\
-Non-vacuity: cross-task path & \lstinline|t_domain_inhabited| & \texttt{composed/proof/inhabitation\_goal\_taskwake.rs} \\
-Non-vacuity: depth variant & \lstinline|depth_domain_inhabited| & \texttt{composed/proof/inhabitation\_depth.rs} \\
-Cross-task arrival clause non-vacuous & \lstinline|taskwake_arrival_within_nonvacuous_witness| & \texttt{composed/proof/inhabitation\_goal\_taskwake.rs} \\
-Drain occurrence derived & \lstinline|single_progress_has_drain_*| & \texttt{composed/proof/assumption\_satisfiable.rs} \\
+End-to-end theorem (\S\ref{sec:theorem}) & \vcode{end_to_end_liveness_env_N_trace} (proven by \vcode{..._holds}) & \vcode{composed/proof/assumption_satisfiable.rs} \\
+Arbitrary-depth variant & \vcode{end_to_end_liveness_from_depth_trace} & \vcode{composed/proof/depth_generalization.rs} \\
+Explicit step bound ($\mathit{chunk}+\mathit{cap}\cdot\mathit{chunk}$) & \vcode{ete_reaches_goal_explicit_bound} & \vcode{composed/proof/assumption_satisfiable.rs} \\
+Well-formedness preservation & \vcode{composed_progress_preserves_wf_lemma} & \vcode{composed/proof/end_to_end.rs} \\
+Assumptions jointly satisfiable & \vcode{top_theorem_precondition_satisfiable}, \vcode{env_N_satisfiable} & \vcode{composed/proof/assumption_satisfiable.rs} \\
+Non-vacuity: timer path & \vcode{b_domain_inhabited} (all budgets: \vcode{..._at_any_n}) & \vcode{composed/proof/inhabitation_goal_wake.rs}, \vcode{inhabitation_budget.rs} \\
+Non-vacuity: io path & \vcode{bio_domain_inhabited} & \vcode{composed/proof/inhabitation_goal_io.rs} \\
+Non-vacuity: deferred path & \vcode{d_domain_inhabited} & \vcode{composed/proof/inhabitation_goal_defer.rs} \\
+Non-vacuity: cross-task path & \vcode{t_domain_inhabited} & \vcode{composed/proof/inhabitation_goal_taskwake.rs} \\
+Non-vacuity: depth variant & \vcode{depth_domain_inhabited} & \vcode{composed/proof/inhabitation_depth.rs} \\
+Cross-task arrival clause non-vacuous & \vcode{taskwake_arrival_within_nonvacuous_witness} & \vcode{composed/proof/inhabitation_goal_taskwake.rs} \\
+Drain occurrence derived & \vcode{single_progress_has_drain_*} & \vcode{composed/proof/assumption_satisfiable.rs} \\
 \bottomrule
 \end{tabular}
 \caption{Paper claim $\to$ Verus proof item. \texttt{./ci.sh} re-checks all of them.}
