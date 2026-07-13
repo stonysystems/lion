@@ -20,17 +20,18 @@ bench_setup() {
   export PATH="$HOME/.local/bin:$PATH"
   APP_DIR="$(cd "$1" && pwd)"
   RW_DIR="$(cd "$APP_DIR/.." && pwd)"
-  # The suite reproduces the PAPER topology exactly: the server app runs on
-  # this machine, the load generator on CLIENT_HOST (axum additionally runs
-  # its localhost deployment — a paper row — from its own run.sh). Topology
-  # comes from real-world/hosts.env (copy hosts.env.example).
-  if [ ! -f "$RW_DIR/hosts.env" ]; then
-    echo "FATAL: real-world/hosts.env not found — copy hosts.env.example and set SERVER_HOST/CLIENT_HOST/SSH_*" >&2
-    exit 2
+  # Topology comes from real-world/hosts.env (copy hosts.env.example).
+  # Without hosts.env everything defaults to LOCAL (server + load generator
+  # on this host) — the canonical pingora topology and a single-machine
+  # smoke for the others; rumqtt and axum need hosts.env to reproduce the
+  # paper's cross-machine rows.
+  if [ -f "$RW_DIR/hosts.env" ]; then
+    # shellcheck disable=SC1091
+    . "$RW_DIR/hosts.env"
+  else
+    echo "[bench] no real-world/hosts.env — running fully local (see hosts.env.example)"
   fi
-  # shellcheck disable=SC1091
-  . "$RW_DIR/hosts.env"
-  : "${CLIENT_HOST:?hosts.env must set CLIENT_HOST (the load-generator machine)}"
+  CLIENT_HOST="${CLIENT_HOST:-127.0.0.1}"
   DURATION="${DURATION:-10}"
   RUNS="${RUNS:-10}"
   SERVER_HOST="${SERVER_HOST:-127.0.0.1}"

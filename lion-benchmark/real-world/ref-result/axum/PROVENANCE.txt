@@ -1,10 +1,6 @@
-commit: c6736367
+commit: 72c44640
 host: zoo-002 (AMD EPYC 7702P 64-Core Processor)
 threads: 128, numa: 1
 kernel: 5.15.0-185-generic, governor: schedutil
-mode: xmachine
-client: zoo-004, rtt: 0.242 ms
+client: zoo-004, rtt: 0.313 ms
 protocol: interleaved A-B, 30s x 10 runs, trim-2 mean±std
-backfill: axum_local_{raw,summary}.csv collected in a follow-up session (batch #1 predated
-  the dual-deployment runner): same host (zoo-002), same protocol
-  (30s x 10, interleaved A-B), DEPLOYMENTS=local at commit 509bda21.

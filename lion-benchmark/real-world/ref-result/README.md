@@ -1,26 +1,37 @@
-# ref-result — cross-machine reference dataset (paper protocol)
+# real-world reference dataset #3 (post-remediation validation run)
 
-Collected with the hardened protocol; every number regenerable via:
+Third reference batch, collected on zoo-002 (client zoo-004) from a **fresh
+GitHub clone** at commit `72c44640` — the first batch on the code that includes
+the evaluation-audit remediation (park-friendly Lion worker shutdown in the
+pingora fork, lion-axum without a direct tokio dependency, hardened harnesses).
+Same one-command pipeline as `../ref-result-2`:
 
-    cd lion-benchmark && STAGES=realworld ./collect_paper_data.sh
-    # (topology in real-world/hosts.env — copy hosts.env.example)
+```bash
+STAGES=realworld ./collect_paper_data.sh
+```
 
-| | |
-|---|---|
-| Server | zoo-002, AMD EPYC 7702P (128 t, 1 NUMA), kernel 5.15.0-185, governor schedutil |
-| Client | zoo-004 (Xeon E5-2683 v4), wrk 4.2.0 / mqtt-benchmark, RTT ~0.3–0.5 ms |
-| Protocol | interleaved A-B (run outer, runtime inner, server restart per cell), 30 s × 10 runs |
-| Statistic | trim-2 mean ± std (drop 2 lowest + 2 highest of 10) — same as micro/plot.py |
-| Code | commit c6736367 (post timer-optimization freeze c9cb87e2 + Connect::poll fix) |
+Purpose: (a) confirm the remediation caused no performance regression,
+(b) re-validate that the whole pipeline runs end-to-end from a clean clone.
 
-`table.{md,tex,csv}` is the exported paper table (regenerate with
-`tools/export_paper_table.py .`). Per-app subdirectories hold the per-run raw CSV (no averaging-away), the
-trim-2 summary, and the machine/protocol PROVENANCE captured at collection
-time. Known deviation from the old paper text: the pingora sweep is
-conns={50,200} (no 10 KB payload workload — tracked as a paper-revision item);
-the link RTT is ~0.4 ms, not the 2.4 ms stated in the old setup line.
+## Consistency with the earlier batches
 
-Axum local-deployment rows (`axum/axum_local_{raw,summary}.csv`) were
-backfilled later — batch #1 predated the dual-deployment runner; same
-host, protocol, and topology (see `axum/PROVENANCE.txt`). With them the table
-is 11/11 rows, envelope 94.0–117.9%, matching `../ref-result-2`.
+Envelope 91.1%–122.1% of Tokio (11/11 rows) vs 94.0%–117.9% (`../ref-result`)
+and 95.9%–118.6% (`../ref-result-2`). Per-row agreement is within each cell's
+historical noise:
+
+- **Pingora** (the app most affected by the worker-shutdown change):
+  101.5% / 100.1% of Tokio vs 97.0% / 101.9% in batch #2 — no regression at
+  saturation; Lion is marginally faster than in batch #2.
+- **Axum cross** rows remain link-saturated (both runtimes within 0.1% — see
+  the dual-deployment note in `../README.md`); **Axum local** rows remain the
+  runtime-bound evidence: 122.1% / 108.0% / 110.5% vs 118.6% / 107.8% / 112.1%
+  in batch #2.
+- **rumqtt P2P** is this batch's envelope low end (91.1%); that cell carries
+  the suite's largest variance in every batch (batch #1: ±45.2K/±33.0K;
+  batch #2: ±31.6K/±40.5K; here the Tokio arm happened to land a
+  low-variance high mean).
+
+Layout matches `../ref-result-2`: per-app `*_raw.csv` (per-run rows, no
+averaging-away) + `*_summary.csv` (trim-2 mean ± std, recomputable from the
+raw rows) + `PROVENANCE.txt` (commit, host, kernel, governor, RTT, protocol),
+plus the exported paper table (`table.md` / `table.tex` / `table.csv`).

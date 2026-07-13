@@ -5,11 +5,15 @@
 # run is recorded to a per-run raw CSV (repo policy: per-run raw retained); a trimmed summary follows.
 #
 # Measures throughput (req/s) of the HTTP echo service across a connection sweep,
-# both runtimes under a single-threaded config. Local by default (server + wrk on
-# this host); set CLIENT_HOST (or run via ../lib/remote_launch.sh) for cross-machine.
+# both runtimes under a single-threaded config.
+#
+# CANONICAL TOPOLOGY: LOCAL (server + wrk on this host). This benchmark is
+# pinned to the single-host setup — the reference dataset and the paper's
+# pingora rows are local measurements; any hosts.env cross-machine topology
+# is ignored here unless ALLOW_CROSS=1 is set explicitly.
 #
 # Usage:
-#   ./run.sh                       # DURATION=10s x RUNS=10, conns 50 200
+#   ./run.sh                       # DURATION=10s x RUNS=10, conns 50 200 + payload10k
 #   DURATION=3 RUNS=2 ./run.sh     # quick smoke
 #   CONNS="10 100 500" ./run.sh    # custom connection sweep
 set -euo pipefail
@@ -18,10 +22,22 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "$DIR/../lib/bench_common.sh"
 bench_setup "$DIR"
+if [ "${ALLOW_CROSS:-0}" != "1" ]; then
+  SERVER_HOST=127.0.0.1
+  CLIENT_HOST=127.0.0.1
+fi
 require_client_tool wrk
 
 PORT="${PORT:-6145}"
-CONNS="${CONNS:-50 200}"
+# ${VAR-default} (no colon): an explicitly EMPTY value skips that sweep,
+# only an unset variable falls back to the default.
+CONNS="${CONNS-50 200}"
+# Large-payload workload: a 10 KB POST body the echo app returns verbatim
+# (the paper table's "Large-10KB" row), run at PAYLOAD_CONNS connections.
+# Set PAYLOAD_CONNS="" to skip. Like axum's lua workloads, the script path
+# must resolve on the client host (same repo path there).
+PAYLOAD_CONNS="${PAYLOAD_CONNS-50}"
+PAYLOAD_LUA="$DIR/src/benchmark/post10k.lua"
 LION_T="$(bench_target_dir "$DIR/src/lion-pingora")"
 TOKIO_T="$(bench_target_dir "$DIR/src/tokio-pingora")"
 LION="$LION_T/release/examples/server"
@@ -71,6 +87,12 @@ for r in $(seq 1 "$RUNS"); do
       lat=$(echo "$out" | awk '/Latency/{print $2; exit}')
       echo "pingora,$rt,conns$c,$c,$r,${rps:-0},${lat:-0}" | tee -a "$RAW"
     done
+    if [ -n "$PAYLOAD_CONNS" ]; then
+      out=$(on_client wrk -t2 -c"$PAYLOAD_CONNS" -d"${DURATION}s" -s "$PAYLOAD_LUA" "http://$SERVER_HOST:$PORT" 2>&1)
+      rps=$(echo "$out" | awk '/Requests\/sec/{print $2}')
+      lat=$(echo "$out" | awk '/Latency/{print $2; exit}')
+      echo "pingora,$rt,payload10k,$PAYLOAD_CONNS,$r,${rps:-0},${lat:-0}" | tee -a "$RAW"
+    fi
     server_stop; sleep 2
   done
 done

@@ -31,6 +31,7 @@ ROWS = [
     ("rumqtt P2P",           "rumqttd", "W-P2P",     "cross", "pub_mps"),
     ("Pingora Low-conc",     "pingora", "conns50",   "cross", "rps"),
     ("Pingora High-conc",    "pingora", "conns200",  "cross", "rps"),
+    ("Pingora Large-10KB",   "pingora", "payload10k", "cross", "rps"),
     ("Axum (cross) API",     "axum",    "small",     "cross", "rps"),
     ("Axum (cross) Static",  "axum",    "large",     "cross", "rps"),
     ("Axum (cross) Mixed",   "axum",    "mixed",     "cross", "rps"),

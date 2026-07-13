@@ -43,6 +43,8 @@ slides/**/.DS_Store
 
 # Local experiment results (not tracked)
 tmp_result/
+lion-benchmark/*/results/
+lion-benchmark/real-world/*/results/
 
 # Python virtualenv for the micro benchmark plotting script
 .venv/

@@ -1,8 +1,9 @@
 #!/bin/bash
 # One-command regeneration of the paper's benchmark dataset, in the paper's
-# exact topology: server apps on THIS machine, load generator on CLIENT_HOST
-# (real-world/hosts.env), axum additionally in its localhost deployment, micro
-# single-machine on this host, ironfleet replicas here + remote client.
+# exact topology: rumqtt/axum servers on THIS machine with the load generator
+# on CLIENT_HOST (real-world/hosts.env), axum additionally in its localhost
+# deployment, pingora fully local (its canonical topology — see pingora/run.sh),
+# micro single-machine on this host, ironfleet replicas here + remote client.
 #
 # Usage:
 #   ./collect_paper_data.sh                          # default stages: realworld micro

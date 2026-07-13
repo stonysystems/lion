@@ -1,24 +1,29 @@
-# ironfleet reference dataset (paper topology)
+# ironfleet reference dataset #3 (post-remediation validation run)
 
-Collected by `../../collect_paper_data.sh` (STAGES=ironfleet) on the
-paper anchor: 3 replicas on zoo-002 (AMD EPYC 7702P), client on zoo-004
-(0.26 ms RTT), 3 reps per cell, 30 s each, cells {lion,csharp}×{unpin,1core}.
-See `PROVENANCE.txt` for commit/host details.
+Third reference batch, collected on the paper topology (3 replicas on zoo-002,
+client on zoo-004) from a **fresh GitHub clone** at commit `72c44640`,
+including a from-scratch C#/Dafny build, via:
 
-- `{runtime}_{config}.rN.reqlog` — raw client stdout (one `#req tid seq lat_ms`
-  line per completed request); `.cpulog` — per-second `ps -o %cpu` samples of
-  the three server processes.
-- `table.md` / `table.tex` — exported by `../export_table.py ref-result`
-  (trim-2 across reps; with 3 reps that is the per-cell median).
+```bash
+STAGES=ironfleet ./collect_paper_data.sh
+```
 
-| Metric | Lion unpin | Lion 1core | C# unpin | C# 1core |
-|---|---|---|---|---|
-| Throughput (req/s) | 3275 | 1970 | 1661 | 342 |
-| Avg latency (ms) | 0.51 | 0.87 | 1.03 | 5.09 |
-| Peak server CPU (%) | 139 | 87 | 512 | 102 |
+First batch collected with the hardened harness: `run.sh` now aborts on a
+non-ready replica, and every run archives a per-replica `.arm` file recording
+which I/O scheduler actually ran (all `lion_*.arm` files here carry
+"Using Lion async IO scheduler" from all three replicas; `csharp_*.arm`
+record the marker's absence — the C# `IoScheduler` arm).
 
-Lion/C# throughput: **1.97× unpinned, 5.76× single-core** (paper's original
-batch: 1.46× / 4.74×). Same regime as the paper's `tab:ironfleet` — Lion is
-faster at a fraction of the CPU (139% vs 512% unpinned), and the gap widens
-under a one-core budget — with the C# `IoScheduler` baseline landing lower on
-this machine/batch than in the paper's run, so the ratios here are larger.
+## Consistency with the earlier batches
+
+| Metric | ref-result | ref-result-2 | this batch |
+|---|---|---|---|
+| Lion unpin req/s | 3275 | 3244 | 3273 |
+| Lion 1core req/s | 1970 | 1985 | 2005 |
+| Peak leader CPU (Lion unpin) | 139% | 142% | 140% |
+| Lion/C# throughput (unpin) | 1.97× | 1.98× | 1.99× |
+| Lion/C# throughput (1core) | 5.76× | 6.09× | 6.00× |
+
+Contents: one `.reqlog` + `.cpulog` + `.arm` per {runtime}×{config}×rep,
+`PROVENANCE.txt`, and `table.md` exported by `../export_table.py` (trim-2 over
+reps) from these raw files.
