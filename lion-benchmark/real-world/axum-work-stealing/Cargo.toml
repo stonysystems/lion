@@ -1,0 +1,41 @@
+[package]
+name = "axum-work-stealing"
+version = "0.1.0"
+edition = "2021"
+description = "Work-stealing vs thread-per-core benchmark: an axum service with a CPU-heavy endpoint, run on Tokio (multi-thread, work-stealing) and Lion (thread-per-core)."
+
+[lib]
+path = "src/lib.rs"
+
+# Tokio arm: multi-threaded work-stealing runtime.
+[[bin]]
+name = "ws-tokio"
+path = "src/bin/ws_tokio.rs"
+
+# Lion arm: N per-core single-threaded executors (thread-per-core, no stealing).
+[[bin]]
+name = "ws-lion"
+path = "src/bin/ws_lion.rs"
+
+[dependencies]
+# Shared workload (runtime-agnostic): the CPU-heavy handler.
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+
+# Tokio arm.
+tokio = { version = "1", features = ["full"] }
+
+# Lion arm (the verified runtime facade; drop-in for tokio's surface).
+lion = { path = "../../../lion", package = "lion" }
+
+# Shared HTTP plumbing for the manual (Lion) serving loop.
+hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+tower = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
