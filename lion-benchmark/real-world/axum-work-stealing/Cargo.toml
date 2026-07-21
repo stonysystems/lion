@@ -17,6 +17,12 @@ path = "src/bin/ws_tokio.rs"
 name = "ws-lion"
 path = "src/bin/ws_lion.rs"
 
+# Tokio arm + RuntimeMetrics sampler (needs RUSTFLAGS="--cfg tokio_unstable").
+# Used only to test the parking hypothesis; not part of the main sweep.
+[[bin]]
+name = "ws-tokio-metrics"
+path = "src/bin/ws_tokio_metrics.rs"
+
 [dependencies]
 # Shared workload (runtime-agnostic): the CPU-heavy handler.
 axum = "0.8"
@@ -29,6 +35,13 @@ tokio = { version = "1", features = ["full"] }
 
 # Lion arm (the verified runtime facade; drop-in for tokio's surface).
 lion = { path = "../../../lion", package = "lion" }
+
+# CPU affinity for the Lion arm. lion::runtime::MultiRuntime spawns its
+# executors as plain threads with no affinity, so without this the OS is free to
+# place two executors on one core and leave another idle -- measured on zoo-002:
+# 8 executor threads occupying 7 CPUs, cpu5 never used. That is not
+# thread-per-core, and it costs the Lion arm a core plus contention.
+libc = "0.2"
 
 # Shared HTTP plumbing for the manual (Lion) serving loop.
 hyper = "1"
