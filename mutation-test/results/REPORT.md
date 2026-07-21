@@ -37,8 +37,9 @@ Raw logs: `<id>-{apply,build,verify}.log`; adjudicated matrix: matrix.md.
 
 ## Caveats
 
-- One mutant per site, hand-designed; this is a targeted sensitivity probe,
-  not exhaustive mutation coverage.
+- One mutant per site, LLM-generated (one per scheduling-chain link plus the
+  trusted-region controls); this is a targeted sensitivity probe, not exhaustive
+  mutation coverage.
 - The first-failure location is where verification stops, not necessarily the
   only invariant violated.
 - An earlier automated verdict pass mis-scored C1/C3 as CAUGHT (substring
