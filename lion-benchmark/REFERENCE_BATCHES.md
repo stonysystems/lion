@@ -40,11 +40,25 @@ on `multi` (#7209); tokio-latest, and Lion in both configs, pass 3/3.
 
 **real-world** — parity verdicts agree, but per-cell winners inside the parity
 band move between batches, as `real-world/README.md` already notes. The
-envelope is `91.1%-122.1%` (batch 1) and `94.9%-118.9%` (batch 2).
+envelope is `95.1%-122.1%` (batch 1) and `98.8%-118.9%` (batch 2).
 
-`rumqtt P2P` is the one high-variance cell and accounts for both lower bounds.
-In batch 2 its ten paired per-run ratios span **78%-118%** (sd 10.7 pp), with
-run-to-run CV of 7.2% (tokio) and 8.2% (lion) — an order of magnitude noisier
-than any other cell in the table. Its batch means (91.1%, 94.9%) are within
-that spread of each other, so neither should be quoted as a point estimate
-without the spread. Every other cell is stable to within a few points.
+Figures here are for rumqtt's **delivered** rate (`sub_mps`), which is what
+`tools/export_paper_table.py` reports. An earlier revision of this file quoted
+the publish rate; see that script's header for why the publish rate is a
+client-side enqueue measure rather than a broker-side one.
+
+`rumqtt P2P` is the widest-spread cell and accounts for both lower bounds. In
+batch 2 its ten paired per-run ratios span **83%-107%** (sd 6.5 pp), against
+**87%-103%** (sd 5.1 pp) in batch 1; run-to-run CV is 3.0% (tokio) and 5.8%
+(lion). Its batch means (95.1%, 98.8%) sit within that spread of each other, so
+neither should be quoted as a point estimate without the spread.
+
+P2P is the noisiest cell in the table but not by a wide margin — `Pingora
+conns200` reaches CV 4.2-4.8%, and three further cells exceed 3%. (A previous
+revision called P2P "an order of magnitude noisier than any other cell"; that
+was wrong on the publish rate too, where the gap was ~1.7x.) Treat roughly a
+third of the table as unable to resolve differences of a few percent: within
+each batch, 15 of 34 comparable cells have a Lion-Tokio gap smaller than the
+larger of the two run-to-run standard deviations, and 3 of those reverse sign
+between batches. What reproduces across both batches is the parity verdict, not
+the per-cell ordering inside the parity band.

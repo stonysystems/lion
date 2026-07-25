@@ -18,7 +18,7 @@ Purpose: (a) confirm the remediation caused no performance regression,
 
 ## Consistency with the earlier batches
 
-Envelope 91.1%–122.1% of Tokio (12/12 rows incl. the local pingora cells) vs 94.0%–117.9% (batch #1)
+Envelope 95.1%–122.1% of Tokio (12/12 rows incl. the local pingora cells) vs 94.0%–117.9% (batch #1)
 and 95.9%–118.6% (batch #2; both pruned batches survive in the
 evaluation-audit report). Per-row agreement is within each cell's
 historical noise:
@@ -32,10 +32,13 @@ historical noise:
   the dual-deployment note in `../README.md`); **Axum local** rows remain the
   runtime-bound evidence: 122.1% / 108.0% / 110.5% vs 118.6% / 107.8% / 112.1%
   in batch #2.
-- **rumqtt P2P** is this batch's envelope low end (91.1%); that cell carries
-  the suite's largest variance in every batch (batch #1: ±45.2K/±33.0K;
-  batch #2: ±31.6K/±40.5K; here the Tokio arm happened to land a
-  low-variance high mean).
+- **rumqtt P2P** is this batch's envelope low end (95.1% on the delivered
+  rate); that cell carries the suite's largest variance in every batch. Its
+  ten paired per-run ratios span 87%–103% here (sd 5.1 pp) and 83%–107% in
+  `ref-2` (sd 6.5 pp), so the two batch means (95.1%, 98.8%) sit inside each
+  other's spread. The envelope figures above are the delivered rate
+  (`sub_mps`), which is what `tools/export_paper_table.py` reports; earlier
+  revisions of this file quoted the client-side publish rate.
 
 Layout: per-app `*_raw.csv` (per-run rows, no
 averaging-away) + `*_summary.csv` (trim-2 mean ± std, recomputable from the

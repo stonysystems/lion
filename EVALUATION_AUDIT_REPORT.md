@@ -8,6 +8,14 @@ per-experiment source-level deep reads by three independent reviewers;
 statistics recomputed from raw CSVs; regime claims checked against the paper
 source.
 
+> **Note added later.** This is a point-in-time record and its figures are left
+> as executed. The rumqtt rows of the paper table have since been switched from
+> the client's publish rate to the delivered rate (`sub_mps`); real-world
+> envelopes quoted below therefore differ from the ones `tools/export_paper_table.py`
+> produces today (91.1–122.1% becomes 95.1–122.1% for the batch discussed in
+> §item 2). Nothing in this report's findings depends on which of the two
+> columns is reported — both are symmetric across arms.
+
 **Bottom line: the substitution is genuine and the comparisons are fair.
 Every measured request path in every "Lion" arm runs on `lion::*` (accept,
 per-connection tasks, read/write, timers, fs, channels); no silent-fallback
