@@ -26,6 +26,17 @@ plt.rcParams.update({
 })
 TOKC,LIOC,CHUNKC="#e07b39","#9aa5b1","#1b6ca8"
 RHOS=["0.2","0.35","0.5","0.65","0.8","0.9"]
+XLIM=(0.25,0.9)
+# Three utilisation regimes, shaded as background bands. The two boundaries are
+# Tokio's own measured utilisations at rho=0.35 and rho=0.5 -- the pair that
+# brackets its p99 cliff. Drawing them there (rather than at a fitted breakpoint
+# inside the segment) is honest about the resolution: all we know is that the
+# transition happens somewhere between these two measurements.
+#   [xlim, 0.492)  parked workers -- a queued request waits to be unparked before
+#                  it can be stolen, so work-stealing's tail is worst here
+#   [0.492, 0.625) transition: parking shrinks with load, the curves cross
+#   [0.625, xlim]  the shared run queue pays off -- stealing keeps the cores even
+REGIONS=[(XLIM[0],0.492,"#c1584b"),(0.492,0.625,"#d9a441"),(0.625,XLIM[1],"#4f9d69")]
 
 def load(p):
     g=defaultdict(list)
@@ -70,6 +81,10 @@ def main():
                     capsize=1.6,elinewidth=0.9,alpha=al,label=lab,zorder=z)
 
     fig,ax=plt.subplots(figsize=(3.45,2.05))
+    for x0,x1,c in REGIONS:
+        ax.axvspan(x0,x1,color=c,alpha=0.11,lw=0,zorder=0)
+    for _,xb,_ in REGIONS[:-1]:
+        ax.axvline(xb,color="#5a5a5a",ls=":",lw=0.6,alpha=0.7,zorder=1)
     band(ax,sers["ti"],TOKC,"s","--","Tokio, inline",z=3)
     band(ax,sers["li"],LIOC,"o","-","Lion, inline",lw=1.1,al=.9,z=2)
     band(ax,sers["lc"],CHUNKC,"o","-","Lion, yield-chunked",z=4)
@@ -77,7 +92,7 @@ def main():
     ax.set_xlabel("measured CPU utilisation")
     ax.set_ylabel("p99 latency (Norm.)")
     ax.legend(loc="upper left")
-    ax.set_xlim(0.25,0.9); ax.set_ylim(0.14,1.08)
+    ax.set_xlim(*XLIM); ax.set_ylim(0.14,1.08)
     ax.yaxis.set_major_locator(LogLocator(base=10,subs=[2,3,5,10]))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v,_: f"{v:g}"))
     ax.yaxis.set_minor_formatter(NullFormatter())

@@ -6,7 +6,11 @@ mutants — answering "could a wrong implementation verify just as well?".
 Trusted-region control mutants additionally map the declared TCB boundary
 empirically.
 
-**Status**: PREPARED (mutant list locked, not yet executed).
+**Status**: EXECUTED. Results in results/matrix.md (adjudicated) and
+results/REPORT.md. Headline: 10/10 verified-region mutants CAUGHT; controls
+C1/C3 SURVIVED and hang the stress suite, C2 CAUGHT by caller-side proofs
+(recorded per rule 4 as a finding: the ghost-log call protocol is partially
+caller-enforced, so the trusted surface is narrower than declared).
 
 ## Protocol (locked before execution; no mid-run changes)
 
