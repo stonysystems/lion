@@ -1,0 +1,12 @@
+commit: fd78fc3
+host: zoo-002 (AMD EPYC 7702P 64-Core Processor), fresh GitHub clone
+threads: 128, numa: 1
+kernel: 5.15.0-185-generic, governor: schedutil
+protocol: ./run.sh (REPS=3, TIMEOUT=15s, HEATMAP=1); C ports via
+  libevent-tests/{build_deps.sh,make all,run.sh} and libuv-tests same (REPS
+  per their run.sh defaults)
+note: second reference batch. Collected from the same fresh clone as the
+  real-world / micro / ironfleet ref-2 pools. Files were produced at the
+  top level of correctness-stress/ by run.sh and are renamed here to the
+  ref-result layout (libevent-tests/results.jsonl -> libevent-results.jsonl,
+  libuv-tests/results.jsonl -> libuv-results.jsonl).

@@ -1,0 +1,9 @@
+system,runtime,workload,metric,mean,stddev,unit
+rumqttd,lion,W-Burst,throughput,93331.16,25.57,ops/s
+rumqttd,lion,W-Fanin,throughput,519582.69,2283.59,ops/s
+rumqttd,lion,W-Fanout,throughput,800.53,11.39,ops/s
+rumqttd,lion,W-P2P,throughput,493421.38,28571.39,ops/s
+rumqttd,tokio,W-Burst,throughput,93320.01,14.10,ops/s
+rumqttd,tokio,W-Fanin,throughput,521817.96,8765.58,ops/s
+rumqttd,tokio,W-Fanout,throughput,774.66,2.56,ops/s
+rumqttd,tokio,W-P2P,throughput,520111.30,11717.18,ops/s
