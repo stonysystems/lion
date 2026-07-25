@@ -68,14 +68,32 @@ def group_ops(rows, key_fn):
     return groups
 
 
-def autoscale_y(ax):
-    """Data-driven y-limits: 0 baseline, 12% headroom above the tallest
-    artist. Hardcoded limits tuned to one machine silently clip data from
-    another (an EPYC fs panel rendered empty under a 40-180K window)."""
+def autoscale_y(ax, baseline='zero', pad=0.12):
+    """Data-driven y-limits. Hardcoded limits tuned to one machine silently
+    clip data from another (an EPYC fs panel rendered empty under a 40-180K
+    window), so both baselines derive their range from the plotted artists.
+
+    baseline='zero' (default): 0 baseline, `pad` headroom above the tallest
+    artist. Required for the bar panels — a bar encodes its value as height
+    from zero, so a truncated baseline misstates the ratios it shows.
+
+    baseline='data': floor just below the lowest measured point instead. For
+    line panels whose values sit far from zero, a 0 baseline spends the lower
+    half of the axes on empty space. Only for panels read as a trend, where
+    no artist encodes its value as a distance from the baseline.
+    """
     ax.relim()
     ax.autoscale(axis='y')
     lo, hi = ax.get_ylim()
-    ax.set_ylim(0, hi * 1.12)
+    if baseline == 'zero':
+        ax.set_ylim(0, hi * (1 + pad))
+        return
+    # Undo autoscale's symmetric margin to recover the true data bounds, then
+    # pad both ends by the same fraction of the data span.
+    m = ax.margins()[1]
+    span = (hi - lo) / (1 + 2 * m)
+    lo_d, hi_d = lo + m * span, hi - m * span
+    ax.set_ylim(max(0.0, lo_d - span * pad), hi_d + span * pad)
 
 
 def trimmed_stats(vals, trim=2):
@@ -209,13 +227,19 @@ def main():
     monoio_vals = g[('monoio', '1')]
     monoio_m, _ = trimmed_stats(monoio_vals)
     ax.axhline(y=monoio_m / 1e3, color=COLORS['Monoio'], linestyle='--', linewidth=1.5, alpha=0.7)
-    ax.text(6.5, monoio_m / 1e3 + 4, 'Monoio', fontsize=16, color=COLORS['Monoio'], ha='center')
 
     ax.set_xticks(bts_int)
     ax.set_xlabel('Blocking Threads')
     ax.set_ylabel('K ops/s')
     ax.set_title('(c) Filesystem I/O')
-    autoscale_y(ax)
+    # Both runtimes sit above 15K here, so a 0 baseline would leave the lower
+    # half of the panel empty; this one is read as a trend, not as bar heights.
+    autoscale_y(ax, baseline='data')
+    # Label offset after the limits are known, so it tracks the axis span
+    # rather than a constant tuned to one machine's throughput.
+    lo_c, hi_c = ax.get_ylim()
+    ax.text(6.5, monoio_m / 1e3 + 0.06 * (hi_c - lo_c), 'Monoio',
+            fontsize=16, color=COLORS['Monoio'], ha='center')
 
     # ═══════════════════════════════════════════
     # (d) Timer Scaling — multi-thread
