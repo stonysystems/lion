@@ -8,7 +8,7 @@ the verified `lion-utility` kernels):
 | app | what it is | what it stresses | paper metric |
 |---|---|---|---|
 | `pingora/` | HTTP reverse proxy | high-concurrency connection management | throughput (req/s) |
-| `rumqtt/`  | MQTT message broker | pub/sub multi-path dispatch | throughput (msg/s) |
+| `rumqtt/`  | MQTT message broker | pub/sub multi-path dispatch | delivered throughput (msg/s to subscribers) |
 | `axum/`    | HTTP static file server | network I/O + async file read | throughput (req/s) |
 
 ## Layout (per app, mirroring `micro/`)

@@ -30,6 +30,12 @@ We evaluate Lion on three real-world applications covering distinct async runtim
   in its localhost deployment on the server host (dual-deployment protocol)
 - **Runtime**: Single-threaded (`new_current_thread`) for both Tokio and Lion
 - **Runs**: 10 per configuration, 30 seconds per run, interleaved A-B
-- **Metrics**: Throughput (ops/s or req/s), trim-2 mean ± stddev
+- **Metrics**: Throughput (ops/s or req/s), trim-2 mean ± stddev.
+  For rumqtt this is the **delivered** rate (`sub_mps`, messages reaching
+  subscribers), not the publish rate: `AsyncClient::publish().await` returns
+  once the message enters a 1000-slot local channel, so `pub_mps` measures
+  client-side enqueue and counts messages the broker never dispatched. Both
+  columns are retained in the raw CSVs; `tools/export_paper_table.py` selects
+  `sub_mps` per row.
 
 ---

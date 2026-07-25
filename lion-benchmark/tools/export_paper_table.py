@@ -25,10 +25,17 @@ def trim2(vals):
     return m, sd, len(vals)
 
 # (label, system, workload, deployment, value_column_name)
+#
+# rumqtt reports sub_mps, the rate messages are DELIVERED to subscribers, not
+# pub_mps. The MQTT client's publish call returns once the message enters a
+# 1000-slot local channel (AsyncClient::new(opts, 1000)), so pub_mps is a
+# client-side enqueue rate and counts messages the broker never dispatched:
+# against the fan-out each workload declares, Fanout delivers 98.4% but Fanin
+# delivers 0.9% and P2P 37%. Only the delivered rate is a broker-side quantity.
 ROWS = [
-    ("rumqtt Fanout",        "rumqttd", "W-Fanout",  "cross", "pub_mps"),
-    ("rumqtt Fanin",         "rumqttd", "W-Fanin",   "cross", "pub_mps"),
-    ("rumqtt P2P",           "rumqttd", "W-P2P",     "cross", "pub_mps"),
+    ("rumqtt Fanout",        "rumqttd", "W-Fanout",  "cross", "sub_mps"),
+    ("rumqtt Fanin",         "rumqttd", "W-Fanin",   "cross", "sub_mps"),
+    ("rumqtt P2P",           "rumqttd", "W-P2P",     "cross", "sub_mps"),
     ("Pingora Low-conc",     "pingora", "conns50",   "cross", "rps"),
     ("Pingora High-conc",    "pingora", "conns200",  "cross", "rps"),
     ("Pingora Large-10KB",   "pingora", "payload10k", "cross", "rps"),
@@ -41,7 +48,13 @@ ROWS = [
 ]
 
 def load(dirs):
-    """-> {(system, workload, deployment, runtime): [values]}"""
+    """-> {(system, workload, deployment, runtime): {column: [values]}}
+
+    Every numeric column is retained, keyed by name, so ROWS decides which one
+    a given row reports. A raw file may carry several (rumqtt records both
+    pub_mps and sub_mps); picking by a fixed priority order would silently
+    override the per-row choice.
+    """
     data = {}
     for d in dirs:
         for path in glob.glob(os.path.join(d, "**", "*_raw.csv"), recursive=True):
@@ -51,13 +64,10 @@ def load(dirs):
                     system, runtime, workload = r.get("system"), r.get("runtime"), r.get("workload")
                     if not (system and runtime and workload):
                         continue
-                    val = None
-                    for col in ("pub_mps", "rps", "ops_per_sec"):
+                    cell = data.setdefault((system, workload, deployment, runtime), {})
+                    for col in ("pub_mps", "sub_mps", "rps", "ops_per_sec"):
                         if r.get(col) not in (None, ""):
-                            val = float(r[col]); break
-                    if val is None:
-                        continue
-                    data.setdefault((system, workload, deployment, runtime), []).append(val)
+                            cell.setdefault(col, []).append(float(r[col]))
     return data
 
 def fmt_k(mean, sd):
@@ -80,9 +90,9 @@ def main():
         print(f"no *_raw.csv found under: {' '.join(args)}", file=sys.stderr); sys.exit(2)
 
     table = []
-    for label, system, wl, dep, _col in ROWS:
-        t = data.get((system, wl, dep, "tokio"))
-        l = data.get((system, wl, dep, "lion"))
+    for label, system, wl, dep, col in ROWS:
+        t = data.get((system, wl, dep, "tokio"), {}).get(col)
+        l = data.get((system, wl, dep, "lion"), {}).get(col)
         if not t or not l:
             table.append((label, None, None, None, None))
             continue
