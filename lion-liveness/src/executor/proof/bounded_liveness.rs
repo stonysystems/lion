@@ -9,6 +9,14 @@ use crate::executor::spec::events::*;
 use crate::executor::executor_module_spec;
 #[cfg(verus_keep_ghost)]
 use crate::executor::contracts::bounded_injection_poll::*;
+// The next three imports are unused, and are the tail of an earlier refactor:
+// this file once discharged the three per-source drain contracts directly. It
+// now proves `drain_contract` instead (FIFO-queue membership, shared by every
+// drain source), with the per-source arrival legs living in
+// executor/proof/bounded_drain_poll.rs as `single_progress_has_drain_*`. The
+// three contract values survive as per-source statements only — see the
+// NOT DISCHARGED, NOT CONSUMED note on each in lion-executor-spec. Keep or drop
+// these imports together with those files; they are not load-bearing either way.
 #[cfg(verus_keep_ghost)]
 use crate::executor::contracts::bounded_deferred_poll;
 #[cfg(verus_keep_ghost)]

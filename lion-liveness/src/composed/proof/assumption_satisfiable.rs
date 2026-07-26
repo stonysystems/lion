@@ -299,10 +299,15 @@ pub open spec fn end_to_end_env(s: ComposedState, tid: TaskId) -> bool {
 // (per-trace) domain. Only the two genuinely bound-carrying clauses need `cap`
 // (poll count here; queue bound to be added); clock/resource clauses are
 // prefix-closed and stay in end_to_end_env.
-// WAKE-DELIVERY assumption, window-scoped (P4b option (a)).
+// WAKE-ARRIVAL windows (formerly the wake-delivery assumption, P4b option (a)).
 //
-// A task blocked on a FIRED-and-not-yet-consumed wakeup source is in the
-// runnable queue. Compared to the previous form this antecedent is scoped:
+// NOT an assumption. These are the window/anchoring semantics consumed by the
+// DERIVED wake queues in composed::spec::wake_queues — they fix when a fired
+// wakeup counts as belonging to the task's current registration. Read the
+// RETIRED (Phase D) note at the end of this block before relying on any
+// delivery claim made here.
+//
+// A window is scoped so that:
 //   - "unconsumed": the task's LAST executor poll is Pending (a re-poll closes
 //     the window, so post-consumption states are no longer constrained — this
 //     kills the monotone-antecedent disease);
@@ -316,9 +321,15 @@ pub open spec fn end_to_end_env(s: ComposedState, tid: TaskId) -> bool {
 //   - pass-waker: the fire is the PassWaker registration itself. Gating on the
 //     kernel's Woken event would additionally require a (currently absent)
 //     kernel-liveness assumption — see the pass_waker TEMPLATE-ONLY note.
-// Delivery itself (fired ⇒ queued) remains the environment's obligation, per
-// the paper's compositional design; for timer/io it is realizable from the
-// modeled reactor (wake fires in park, DrainReactorWake follows in-tick).
+// Delivery itself (fired ⇒ queued) WAS the environment's obligation in the
+// pre-Phase-D design. It no longer is, and this line used to say otherwise —
+// an auditor reading top-down would have concluded the hardest step of the
+// liveness argument was assumed rather than proved. It is DERIVED:
+// reactor_wake_pending is determined entirely by the logs (WakeTask + owner
+// resolution + executor drains, no free field), and reactor_wake_drain_step
+// forces any Drain{ReactorWake} appended in a step to take every task pending
+// at its start. With one Drain{ReactorWake} per tick and pending-persistence,
+// fired wake -> next tick's drain -> runnable FIFO -> poll is a proof chain.
 // Window anchoring mirrors the module machinery: timer at the canonical
 // (leftmost) registration find_register_timer_idx — under rid reuse this is the
 // same scope limitation as the reactor's leftmost-anchored timer proofs (the

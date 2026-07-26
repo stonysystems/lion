@@ -16,6 +16,28 @@ verus! {
 // The reactor wakes tasks via the ReactorWake queue when timers expire
 // or IO becomes ready. The executor drains this queue entirely each tick.
 
+// NOT DISCHARGED, NOT CONSUMED — kept as the per-source statement only.
+//
+// No theorem proves the reactor/executor satisfies this AsyncContract value, and
+// nothing reads it. That is deliberate, not an omission: the per-source liveness
+// content it states is proved and consumed in a finer-grained form, so packaging
+// it a second time as a contract value would duplicate the obligation, not add to
+// it. The two legs live elsewhere:
+//
+//   arrival  lion-liveness/src/executor/proof/bounded_drain_poll.rs
+//            `single_progress_has_drain_reactor_wake` proves every progress step
+//            contains at least one Drain{{ReactorWake}}; composed consumes it from
+//            composed/proof/assumption_satisfiable.rs.
+//   queue -> poll
+//            lion-liveness/src/executor/proof/bounded_liveness.rs
+//            `executor_drain_satisfies_liveness_env` discharges `drain_contract`,
+//            which is keyed on FIFO-queue membership and so is shared by every
+//            drain source rather than restated per source.
+//
+// This file therefore documents the contract the paper attributes to the
+// ReactorWake queue; the proof of that contract is the pair above. Before deleting
+// it, check that no reader wants the per-source statement in AsyncContract form.
+
 // Option B: trigger/response anchored at `l_start` (new segment only).
 pub open spec fn trigger_fn(l_start: Log, l: Log, tid: TID) -> bool {
   has_drain_with_task_id_after(l, DrainSource::ReactorWake, tid, l_start.len() as int)

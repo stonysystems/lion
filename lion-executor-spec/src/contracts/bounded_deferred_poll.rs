@@ -17,6 +17,28 @@ verus! {
 // to run. The Deferred queue holds these yielded tasks.
 // The queue is drained entirely each tick.
 
+// NOT DISCHARGED, NOT CONSUMED — kept as the per-source statement only.
+//
+// No theorem proves the executor satisfies this AsyncContract value, and nothing
+// reads it. That is deliberate, not an omission: the per-source liveness content
+// it states is proved and consumed in a finer-grained form, so packaging it a
+// second time as a contract value would duplicate the obligation, not add to it.
+// The two legs live elsewhere:
+//
+//   arrival  lion-liveness/src/executor/proof/bounded_drain_poll.rs
+//            `single_progress_has_drain_deferred` proves every progress step
+//            contains at least one Drain{Deferred}; composed consumes it from
+//            composed/proof/assumption_satisfiable.rs.
+//   queue -> poll
+//            lion-liveness/src/executor/proof/bounded_liveness.rs
+//            `executor_drain_satisfies_liveness_env` discharges `drain_contract`,
+//            which is keyed on FIFO-queue membership and so is shared by every
+//            drain source rather than restated per source.
+//
+// This file therefore documents the contract the paper attributes to the
+// Deferred queue; the proof of that contract is the pair above. Before deleting
+// it, check that no reader wants the per-source statement in AsyncContract form.
+
 // Option B: trigger/response are anchored at `l_start`, so they only
 // observe events in the new segment [l_start.len(), l.len()). This removes the
 // position-blindness that previously required contract_form_gap_bridges.
