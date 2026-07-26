@@ -472,7 +472,7 @@ Executor & \lstinline|bounded_drain_poll|     & Once a task appears in a drain o
          & \quad\lstinline|bounded_task_wake_poll|    & \dots\ for the TaskWake queue (cross-task wakeups). \\
          & \quad\lstinline|bounded_deferred_poll|    & \dots\ for the Deferred queue (voluntary yields). \\
 \addlinespace
-Utility  & \lstinline|pass_waker|             & Once a task hands its waker to a synchronization primitive (a channel, a lock, \dots), that primitive invokes the waker. \\
+Utility  & \vcode{passwaker_to_wakewaker_contract} & Once a task hands its waker to a synchronization primitive (a channel, a lock, \dots), that primitive invokes the waker. \\
 \bottomrule
 \end{tabular}
 \caption{The async contracts of the three layers. The end-to-end theorem chains them into
@@ -495,7 +495,8 @@ queue (\lstinline|tick_has_pop_injection|) and draining the deferred, task-wake,
 reactor-wake queues (\lstinline|tick_has_drain_deferred|, \lstinline|tick_has_drain_task_wake|,
 \lstinline|park_drain_reactor_wake|). Scheduling is fair and sound: runnable tasks are taken
 first-in-first-out (\lstinline|fifo_task_selection|), only valid tasks are ever polled
-(\lstinline|valid_task_polling|), and any task that is runnable is actually polled within the
+(\lstinline|valid_task_polling|) and only from inside a tick
+(\lstinline|poll_within_tick|), and any task that is runnable is actually polled within the
 tick (\lstinline|tick_polls_if_runnable|).
 
 \paragraph{Reactor (\texttt{reactor\_inv}).} The timer and IO bookkeeping stays consistent:
@@ -510,7 +511,14 @@ well-formed---it stamps the current time and polls for IO exactly once
 deadline lies in the future (\lstinline|timer_deadline_future|). And, crucially for liveness,
 wakes are delivered on time: an expired timer (\lstinline|wake_on_expired|), or an IO that
 becomes ready in the awaited direction (\lstinline|wake_on_io_ready_readable| /
-\lstinline|wake_on_io_ready_writable|), produces a wake.
+\lstinline|wake_on_io_ready_writable|), produces a wake. A further group keeps the IO
+registration cycle honest---an IO register or deregister syscall is issued only inside the
+corresponding inbound API cycle (\lstinline|register_io_in_cycle|,
+\lstinline|deregister_io_in_cycle|), the result that cycle returns matches the syscall it
+actually performed (\lstinline|inbound_register_io_result|,
+\lstinline|inbound_deregister_io_result|), and a readiness report only arises inside a park
+cycle (\lstinline|io_ready_in_park|). In all, the reactor carries 19 such properties, split
+between \texttt{reactor\_inv} and the extended \texttt{reactor\_ext\_inv}.
 
 \paragraph{Task (\texttt{utilities\_inv}).} Each task keeps two things straight about itself.
 Whenever one of its polls returns \texttt{Pending}, it has already registered an active way to
@@ -617,9 +625,10 @@ construction from \emph{arbitrary} qualifying states rather than from the witnes
 \label{sec:mapping}
 
 Every claim in this document is a named Verus item; Table~\ref{tab:mapping} maps them
-(paths relative to \texttt{lion-liveness/src/}; the module contracts of
-Table~\ref{tab:contracts} live in \texttt{lion-reactor-spec/src/contracts/} and
-\texttt{executor/contracts/}).
+(paths relative to \vcode{lion-liveness/src/}; the module contracts of
+Table~\ref{tab:contracts} live in \vcode{lion-reactor-spec/src/contracts/},
+\vcode{executor/contracts/}, and---for the utility contract---%
+\vcode{lion-utility/lion-utility-spec/src/generic/contract.rs}).
 
 \begin{table}[ht]
 \centering
@@ -642,7 +651,7 @@ Non-vacuity: deferred path & \vcode{d_domain_inhabited} & \vcode{composed/proof/
 Non-vacuity: cross-task path & \vcode{t_domain_inhabited} & \vcode{composed/proof/inhabitation_goal_taskwake.rs} \\
 Non-vacuity: depth variant & \vcode{depth_domain_inhabited} & \vcode{composed/proof/inhabitation_depth.rs} \\
 Cross-task arrival clause non-vacuous & \vcode{taskwake_arrival_within_nonvacuous_witness} & \vcode{composed/proof/inhabitation_goal_taskwake.rs} \\
-Drain occurrence derived & \vcode{single_progress_has_drain_*} & \vcode{composed/proof/assumption_satisfiable.rs} \\
+Drain occurrence derived & \vcode{single_progress_has_drain_*} & \vcode{executor/proof/bounded_drain_poll.rs} \\
 \bottomrule
 \end{tabular}
 \caption{Paper claim $\to$ Verus proof item. \texttt{./ci.sh} re-checks all of them.}
