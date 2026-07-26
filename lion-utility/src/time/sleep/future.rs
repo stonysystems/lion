@@ -79,6 +79,15 @@ impl Future for Sleep {
       if let Some(rid) = this.kernel.rid {
         handle.deregister_timer(ResourceId(rid));
       }
+      // NOTE: logically this should be `create_reactor_waker_for_current()`, so that
+      // a timer expiry reaches the executor through the ReactorWake queue like every
+      // other reactor-owned wakeup — that is what `net::tcp` and `net::udp` do when
+      // they register with the reactor. Registering the task's own waker here instead
+      // is a deliberate deviation kept from performance tuning of the Sleep path; it
+      // is not a design change. The wakeup is unaffected: a `WakeSource::Task` wake
+      // lands in the TaskWake queue, which the executor drains at the same points it
+      // drains the ReactorWake queue (`next_task` and `park`), so the expiry still
+      // wakes the task.
       let waker = Waker::from_std(cx.waker().clone());
       let deadline = Instant { inner: this.kernel.deadline };
       match handle.register_timer(deadline, waker) {

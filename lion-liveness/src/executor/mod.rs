@@ -18,6 +18,13 @@ pub open spec fn is_complete_tick_cycle(l: Log, start: int, end: int) -> bool {
     !#[trigger] is_tick_begin_at(l, k) && !is_tick_end_at(l, k))
 }
 
+// Paper reference: §4's `step` (lst:liveness-framework). Note that this step
+// relation CARRIES the module invariant — `executor_inv(l_prime)` is a conjunct
+// — so the framework's `progress_preserves_wf` clause holds by construction for
+// Lion's instances. The inductive work it stands for is done where the paper says
+// it is: in the implementation, as the postcondition of `Executor::tick`
+// (lion-executor/src/executor/tick.rs), which proves that the events one tick
+// appends preserve `executor_inv`.
 pub open spec fn executor_progress(l: Log, l_prime: Log) -> bool {
   l_prime.len() > l.len() &&
   l =~= l_prime.subrange(0, l.len() as int) &&

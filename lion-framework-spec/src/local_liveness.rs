@@ -2,8 +2,14 @@ use vstd::prelude::*;
 
 verus! {
 
-// Paper reference: Listing 4 (Invariant templates over event logs)
-// specification.tex lines 237-248
+// Paper reference: §4's progress-invariant discussion, which describes
+// `progress_inv` as a conjunction of local liveness properties — each stating
+// that once a certain event occurs in the log, a corresponding outcome follows
+// within a bounded number of events. The paper carries that triple in prose
+// rather than as a listing; this struct is it. The executor's instance is
+// `tick_polls_if_runnable` (the paper's *cached => poll*), whose `timely`
+// component is "no Tick(End) occurs in between", i.e. the poll lands before the
+// enclosing tick ends. Sketch of the paper's shape:
 //
 // struct LocalLiveness<L> {
 //   acceptance: spec fn(L, nat) -> bool,

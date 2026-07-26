@@ -81,6 +81,15 @@ pub open spec fn env_response_within_trace<L, T>(
 // parameter so a contract's own precondition and the trace-filtered environmental
 // assumption can differ (env-form instances typically set `assumption` to true
 // and pass e.g. a queue bound as `env`).
+//
+// Why two carriers here but a single field in the paper: the first formulation of
+// `assumption` proved too weak to state the runs we needed to filter, and
+// re-stating it in place would have invalidated a large body of finished proofs.
+// We therefore introduced `env` alongside it and migrated the real assumptions
+// into `env` one contract at a time; what remains is `assumption == true` in the
+// env-form instances, with the substance carried by `env`. The split is
+// historical, not semantic — `env` is expressible as `assumption`, which is the
+// single-field template the paper presents.
 pub open spec fn bounded_liveness_env_without_arrival<L, T>(
   ms: ModuleSpec<L>,
   ac: AsyncContract<L, T>,

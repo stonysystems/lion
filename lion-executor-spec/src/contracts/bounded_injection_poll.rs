@@ -8,8 +8,11 @@ verus! {
 
 // Bounded Injection Poll Contract
 //
-// Paper reference: Section 4.3, Example 1 (Spawned Tasks Will Be Polled)
-// Paper reference: nested_liveness_v2.tex lines 221-227
+// Paper reference: §4 names this contract `input_queue_poll` and its queue the
+// "input queue". That is Example 1's deliberately simplified executor, whose one
+// input queue is this injection queue (the Injection Queue of §3). Lion's other
+// arrival paths carry their own contracts: bounded_reactor_wake_poll,
+// bounded_task_wake_poll, bounded_deferred_poll, bounded_drain_poll.
 //
 // Semantics:
 // - acceptance: Task T appears in a PopInjection result (i.e., popped from queue)
