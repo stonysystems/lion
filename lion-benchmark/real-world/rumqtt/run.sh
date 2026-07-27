@@ -60,5 +60,5 @@ for r in $(seq 1 "$RUNS"); do
     server_stop; sleep 2
   done
 done
-echo "== summary (trim-2 mean +/- std, pub_mps) =="
-cat "$(summarize_raw "$RAW" 4 rumqttd)"
+echo "== summary (trim-2 mean +/- std, sub_mps — subscriber-side delivered rate, the paper metric) =="
+cat "$(summarize_raw "$RAW" 5 rumqttd)"
