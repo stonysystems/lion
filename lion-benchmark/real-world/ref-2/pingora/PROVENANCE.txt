@@ -2,5 +2,5 @@ commit: fd78fc3
 host: zoo-002 (AMD EPYC 7702P 64-Core Processor)
 threads: 128, numa: 1
 kernel: 5.15.0-185-generic, governor: schedutil
-client: zoo-004, rtt: 0.248 ms
+topology: LOCAL (single-host, canonical for pingora; server and load generator both on the host above)
 protocol: interleaved A-B, 30s x 10 runs, trim-2 mean±std

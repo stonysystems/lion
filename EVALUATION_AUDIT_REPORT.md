@@ -69,6 +69,16 @@ local executor shim whose `execute` is `lion::spawn`, `lion::fs::read`
 (spawn_blocking asyncify, same shape as tokio's). Twins symmetric (routes,
 file sets, ports, wrk args); tokio arm source-confirmed `new_current_thread`;
 build profiles identical (`opt-level 3, lto, codegen-units 1` both arms).
+Two residual asymmetries (serve-path shape: `axum::serve` vs manual accept
+loop; blocking-pool design: on-demand vs fixed pre-spawned) were settled by a
+controlled five-config decomposition experiment —
+`real-world/axum/attribution_note.md`: the serve-path shape has **no**
+measurable performance effect (+0.1%); the fs/blocking-pool path is the
+dominant component of Lion's localhost lead (equalized-runtime residual ~2%,
+near noise, on the experiment box). Fairness of the comparison is unaffected
+(both arms use their runtime's native fs API); the note records the
+interpretation guard that the lead should not be attributed to the verified
+scheduler core.
 
 **Pingora.** Under the bench config (`threads: 1, work_stealing: false`) the
 service worker is a Lion runtime: `lion::net` accept, per-connection

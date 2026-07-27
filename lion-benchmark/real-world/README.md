@@ -37,7 +37,7 @@ thread-inspecting the Lion binaries should expect these declared runtimes.
 
 ## Methodology (from the paper, `ref_paper_setup.md`)
 
-- **Server** zoo-001, **client** zoo-004 (Axum: zoo-001 localhost).
+- **Server** zoo-002, **client** zoo-004 (Axum: zoo-002 localhost).
 - Single-threaded (`new_current_thread`) for both runtimes; 10 runs × 30 s;
   throughput reported as mean ± stddev.
 - Cross-machine (server + client on separate hosts) is where real-world behaviour

@@ -1,0 +1,16 @@
+config,run,rps,lat
+tokio-serve-fs,1,108072.63,461.68us
+tokio-manual-fs,1,108905.20,458.10us
+tokio-manual-nofs,1,135579.03,366.76us
+lion-manual-fs,1,114226.10,436.45us
+lion-manual-nofs,1,137237.12,362.50us
+tokio-serve-fs,2,108792.87,458.34us
+tokio-manual-fs,2,108181.23,462.86us
+tokio-manual-nofs,2,134532.06,369.80us
+lion-manual-fs,2,113576.98,439.46us
+lion-manual-nofs,2,136776.53,363.90us
+tokio-serve-fs,3,107336.10,464.96us
+tokio-manual-fs,3,107350.67,465.22us
+tokio-manual-nofs,3,132669.74,375.35us
+lion-manual-fs,3,112314.69,443.43us
+lion-manual-nofs,3,135568.30,367.38us

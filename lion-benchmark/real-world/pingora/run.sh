@@ -13,7 +13,7 @@
 # is ignored here unless ALLOW_CROSS=1 is set explicitly.
 #
 # Usage:
-#   ./run.sh                       # DURATION=10s x RUNS=10, conns 50 200 + payload10k
+#   ./run.sh                       # DURATION=30s x RUNS=10, conns 50 200 + payload10k
 #   DURATION=3 RUNS=2 ./run.sh     # quick smoke
 #   CONNS="10 100 500" ./run.sh    # custom connection sweep
 set -euo pipefail
@@ -21,6 +21,10 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "$DIR/../lib/bench_common.sh"
+# Paper protocol: 30 s per run (bench_common's default is 10 s; the reference
+# batches were collected with DURATION=30 — see ref-2/pingora/PROVENANCE.txt).
+# Set before bench_setup, which applies its own 10 s default to unset DURATION.
+DURATION="${DURATION:-30}"
 bench_setup "$DIR"
 if [ "${ALLOW_CROSS:-0}" != "1" ]; then
   SERVER_HOST=127.0.0.1
