@@ -76,6 +76,9 @@ pub open spec fn reactor_inv(l: Log) -> bool {
       get_io_api_register_rid(l[j]) == rid)
   }
   // R16: wake_on_expired (weakened: only for timers still awaiting wake).
+  // BRIDGE: same-park-cycle delivery is nevertheless real — see the BRIDGE note on the
+  // reactor_liveness_inv copy of this comment below, and the header of
+  // lion-reactor-spec/src/invariants/wake_on_expired.rs.
   // DEGENERATE / SAFETY-ONLY (not a liveness guarantee): the antecedent's
   // `data_inv::timer_awaiting_wake(l, i)` requires that NO wake for this rid occurs after i,
   // which directly contradicts the `exists j > i. is_wake_task_at(l, j) && rid matches`
@@ -182,6 +185,21 @@ pub open spec fn reactor_safety_inv(l: Log) -> bool {
 
 pub open spec fn reactor_liveness_inv(l: Log) -> bool {
   // R16: wake_on_expired (weakened: only for timers still awaiting wake).
+  //
+  // BRIDGE (why "an expired timer is woken in the same park cycle" is nevertheless real,
+  // despite the DEGENERATE warning below): reactor_inv is only re-established at
+  // park-cycle boundaries — park() proves reactor_inv(log_final) as a whole-cycle
+  // postcondition, so mid-cycle logs never owe this invariant. A GetCurrentTime >=
+  // deadline observed while the timer is active is a permanent timeout point; at the
+  // first boundary after it, the collapsed safety form forces a WakeTask (or a
+  // DeregisterTimer) to have landed between that clock read and the cycle's end — i.e.
+  // within the same park cycle. The timing thus comes from the checkpoint granularity,
+  // NOT from the dead `!is_park_end` clause (and would evaporate if preservation ever
+  // moved to per-event appends). Consumption: lion-liveness's timeout_triggers_wake_lemma
+  // takes not-deregistered as a side condition (the task-keeps-its-resource assumption)
+  // and extracts "a wake exists" by contradiction with this antecedent's no-wake clause;
+  // the timer contract's round bound (K) comes from the env-form clock path, never from
+  // here. Full discussion: header of lion-reactor-spec/src/invariants/wake_on_expired.rs.
   // DEGENERATE / SAFETY-ONLY (not a liveness guarantee): the antecedent's
   // `data_inv::timer_awaiting_wake(l, i)` requires that NO wake for this rid occurs after i,
   // which directly contradicts the `exists j > i. is_wake_task_at(l, j) && rid matches`

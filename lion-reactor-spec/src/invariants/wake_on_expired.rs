@@ -22,6 +22,39 @@ verus! {
 // NOTE: timeout_triggers_wake_lemma closes one branch ex falso through this
 // contradiction — intentional, but fragile if the definition changes.
 //
+// BRIDGE — how "an expired timer is woken within the same park cycle" is
+// nevertheless a real, verified fact (read this before concluding that prose
+// descriptions of wake_on_expired as timely delivery contradict the warning
+// above):
+//
+// 1. Where the timing really comes from. The invariant is only checked at
+//    park-cycle boundaries: lion-reactor's park() proves reactor_inv on the
+//    final log as a whole-cycle postcondition, and lion-liveness's
+//    reactor_progress steps one full park cycle at a time. Mid-cycle logs are
+//    never required to satisfy it. A GetCurrentTime >= deadline observed while
+//    the timer is active constitutes a timeout point permanently (history is
+//    append-only), so at the first boundary after that clock read the collapsed
+//    safety form — "no expired timer is still awaiting" — forces a WakeTask (or
+//    a DeregisterTimer) to have landed between the clock read and the cycle's
+//    end. That is same-cycle delivery, obtained from the checkpoint granularity,
+//    NOT from the dead `timely` clause. Corollary: if preservation were ever
+//    reproved at per-event granularity, this timing content would silently
+//    evaporate while the definition stays verbatim.
+//
+// 2. The disjunction. The effective content is "expired ==> already woken OR
+//    already deregistered". The not-deregistered half is NOT part of this
+//    invariant; the composing context supplies it as a side condition
+//    (timer_not_deregistered_through below, discharged by the user-task
+//    assumption that a task does not abandon a resource it waits on).
+//
+// 3. How it is consumed. timeout_triggers_wake_lemma (lion-liveness,
+//    reactor/proof/timeout_triggers_wake.rs) case-splits on whether a wake for
+//    the rid exists at all; in the no-wake branch the antecedent holds, the
+//    invariant's unsatisfiable consequent yields the contradiction, and the
+//    branch closes — so "a wake exists" is extracted, with no timing. The timer
+//    contract's round bound (K) is derived on the env-form clock path
+//    (env_timer_wake_general_at / compute_bound), never from this invariant.
+//
 // RECURSION VS CHOOSE: lion-liveness's timely clause uses the constructive
 // first_timeout_point_rec below; lion-reactor's inlined R16 uses the
 // choose-based has_timeout_point/first_timeout_point (in log). They coexist
