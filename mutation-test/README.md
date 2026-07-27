@@ -6,7 +6,12 @@ mutants — answering "could a wrong implementation verify just as well?".
 Trusted-region control mutants additionally map the declared TCB boundary
 empirically.
 
-**Status**: PREPARED (mutant list locked, not yet executed).
+**Status**: EXECUTED (adjudicated results in results/; see RESULTS.md and
+results/matrix.md).
+
+**Mutant provenance**: the mutant list was designed by a large language model
+(prompted to break one link of the fire→drain→FIFO→poll liveness chain per
+mutant), then human-reviewed and locked before execution.
 
 ## Protocol (locked before execution; no mid-run changes)
 
