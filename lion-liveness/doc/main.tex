@@ -200,9 +200,11 @@ The four fields realize the decomposition directly:
   \item \lstinline|executor_log| and \lstinline|reactor_log| are the two logs of the
     runtime \emph{Core}---the Executor's scheduling events (spawn/pop/poll/drain) and
     the Reactor's timer and I/O events (register/set-waker/wake).
-  \item \lstinline|task_logs| maps each live task id to that task's own log of
+  \item \lstinline|task_logs| maps task ids to each task's own log of
     interactions with the synchronization primitives---the \emph{Tasks} managed by
-    the Core; its key set is exactly the currently-managed tasks.
+    the Core. The map is append-only: every task the executor has polled has an
+    entry, and entries are never removed---a completed task's log is simply
+    retained.
   \item \lstinline|injection_schedule| is a \emph{ghost} model of the external
     \emph{Injection Queue}: the committed order in which submitted tasks are
     delivered. It is fixed across progress, and the Executor's pops consume it in
@@ -266,15 +268,23 @@ observes. So a step must carry every fired-but-unconsumed wake through to a poll
   \item \emph{Park sync.} The executor and reactor agree on when the runtime blocks (equal
     park counts), so no wake is lost across a block.
   \end{itemize}
-We model each pipeline as a trusted FIFO boundary rather than a state object shared by two
-modules: these queues are internal to the runtime and never disturbed from outside, so
-capturing only their FIFO behavior is faithful while sidestepping the semantics of
-cross-module shared state.
+We model each pipeline as a trusted boundary rather than a state object shared by two
+modules: a queue enters the model only as its log-derived \emph{pending set}---the wakes
+fired but not yet taken by a drain---and a step requires every pending wake to be included
+in this step's drain of that queue, which takes the set wholesale. No intra-queue order is
+modeled (none is needed: a drain consumes everything at once); the FIFO order that
+scheduling fairness relies on lives in the executor's runnable queue, not in these
+pipelines. The queues are internal to the runtime and never disturbed from outside, so
+this set-level capture is faithful while sidestepping the semantics of cross-module shared
+state.
 \end{enumerate}
 
 \noindent
 This step relation is the \lstinline|progress| field of the composed module spec, so the
-schema's $\mathit{progress}^{\,n}_{\mathit{asm}}$ is its $n$-fold composition.
+schema's $\mathit{progress}^{\,n}_{\mathit{asm}}$ is its $n$-fold composition. Note that
+conditions 2--3 constrain the \emph{successor} state with the module invariants and the
+alignment; Section~\ref{sec:theorem} returns to what this means for well-formedness
+preservation.
 
 \section{Assumptions}
 \label{sec:assumptions}
@@ -292,7 +302,11 @@ two clock reads observe the same millisecond fall outside the assumed environmen
 reached, a registered IO becomes ready within a bounded number of polls, a waker handed to
 another task is eventually invoked; and submitted tasks are delivered to the executor in a
 fixed order. In reality any of these can fail---an awaited IO that never arrives---which is
-exactly why they must be assumed rather than proved.
+exactly why they must be assumed rather than proved. (Alongside these, the mechanized
+environment filter records two finiteness facts of any physical execution rather than
+genuine assumptions about the outside world: timestamps are non-negative, and the runnable
+queue's length never exceeds a symbolic constant---the $C$ that reappears in the explicit
+bound of Section~\ref{sec:theorem}.)
 
 \item \textbf{User task-behavior assumptions.} Constraints on how the user's own tasks
 behave. The central one is that a task returns \texttt{Ready} within a bounded number of
@@ -360,9 +374,14 @@ A few points fix the strength of the guarantee:
   \item \emph{Conditional on a cooperating run.} This is a $\Box\,\mathsf{env}
     \Rightarrow \Diamond\,\mathsf{completed}$ statement: the guarantee holds precisely along
     runs whose every state satisfies the environment assumption.
-  \item \emph{Well-formedness is inductive.} \texttt{progress\_preserves\_wf} makes the Core
-    invariants hold at every reached state, so the precondition on $s$ propagates along the
-    whole run for free.
+  \item \emph{Well-formedness is inductive---by construction.} The composed step relation
+    itself carries the post-state invariants as conjuncts (each module's step requires that
+    module's invariant at the successor, and the alignment clauses supply the cross-module
+    part), so \texttt{progress\_preserves\_wf} holds definitionally rather than by a
+    separate inductive argument, and the precondition on $s$ propagates along the whole run
+    for free. The corresponding obligation is discharged where it belongs: the
+    implementation crates prove that the executable executor and reactor actually take such
+    invariant-carrying steps.
   \item \emph{Arbitrary queue depth (mechanized generalization).} The submission trigger is
     also generalized from head-of-queue to an arbitrary position: a proven variant
     (\texttt{end\_to\_end\_liveness\_from\_depth}) covers a task at any depth $k$ of the
