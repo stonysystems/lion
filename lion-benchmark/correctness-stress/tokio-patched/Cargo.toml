@@ -1,0 +1,24 @@
+# Causation control for the "localset" configuration.
+#
+# The `localset` cell targets a LocalSet defect that is unfixed upstream, so no
+# released Tokio can control it the way 1.52.3 controls `current` and `multi`.
+# This crate supplies the missing control instead: Tokio 1.52.3 — the same
+# release `tokio-latest/` pins — with one repair applied, and nothing else
+# changed. If the `localset` hang is caused by that defect, this crate passes
+# where `tokio-latest/` hangs, and the attribution is established inside this
+# suite rather than asserted.
+#
+# `vendor/` is derived and gitignored: run ./prepare.sh to materialize the
+# patched source (same convention as libevent-tests/deps via build_deps.sh).
+[package]
+name = "cs-tokio-patched"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cs-tokio-patched"
+path = "src/main.rs"
+
+[dependencies]
+rt = { package = "tokio", path = "vendor/tokio-1.52.3", features = ["full"] }
+futures = "0.3"

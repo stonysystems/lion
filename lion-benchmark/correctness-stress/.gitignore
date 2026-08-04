@@ -9,3 +9,6 @@ libuv-tests/deps/
 # copies live in ref-result*/.
 /events.tsv
 /stress_heatmap.pdf
+# Derived: the patched Tokio used as the localset causation control, materialized
+# from the published 1.52.3 crate by tokio-patched/prepare.sh.
+tokio-patched/vendor/

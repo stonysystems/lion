@@ -3,15 +3,32 @@
 #
 # One unified workload (see shared/workload.rs) compiled unchanged against every
 # runtime — each runtime crate differs only by which runtime its `rt` dependency
-# renames. The workload is a neutral liveness stress (deadline-guarded requests,
-# cooperative compute, fan-out, heartbeat, echo I/O, plus the config's idiomatic
-# setup/offload pattern); it carries no bug-specific code. It is run in the two
-# standard deployment configurations (argv: "current" / "multi"). The FINDING
-# below is what running it reveals — which runtimes fail to keep every task live:
-#   current-thread:  Tokio 1.21       hangs   (maps to issue #5020)
-#   multi-thread:    Tokio 1.42/1.44  hang    (maps to issue #7209)
-# so every tested Tokio version hangs in at least one standard config (a different
-# bug in a different subsystem), while the formally-verified Lion passes both.
+# renames. It runs in three configurations (argv):
+#   "current" / "multi"  the two standard deployment configurations. These mixes
+#                        are NEUTRAL — deadline-guarded requests, cooperative
+#                        compute, fan-out, heartbeat, echo I/O, plus the config's
+#                        idiomatic setup/offload pattern, and no bug-specific
+#                        code — so the fixed-version negative control applies to
+#                        them unchanged.
+#   "localset"           a TARGETED cell: the two-driver LocalSet::run_until
+#                        readiness hand-off, added because that defect was
+#                        already known rather than found by the neutral mixes.
+#                        It is kept in its own configuration precisely so it
+#                        cannot contaminate the neutrality of the two above.
+#
+# The FINDING below is what running it reveals — which runtimes fail to keep
+# every task live:
+#   current   Tokio 1.21                     hangs  (issue #5020)
+#   multi     Tokio 1.42/1.44                hang   (issue #7209/#7210)
+#   localset  Tokio 1.21/1.42/1.44 + latest  hang   (unreported; this work)
+# so every tested Tokio version hangs in at least one configuration, and the
+# CURRENT release hangs in the targeted one, while the formally-verified Lion
+# passes all three. Every configuration has a control that passes: tokio-latest
+# for the two neutral mixes, and tokio-patched (the same 1.52.3 release with one
+# repair) for localset, which is what attributes that hang to the defect rather
+# than to how the cell uses the API. Lion's pass on "localset" comes from having no LocalSet of
+# its own (lion::task::LocalSet is a compatibility shim: run_until is
+# future.await, spawn_local is spawn), not from a discharged proof obligation.
 #
 # Oracle: timeout == hang. These liveness failures are PERMANENT stalls (a task is
 # left unscheduled forever), so they never complete. The workload's critical path
@@ -39,8 +56,17 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BENCH_TARGET_ROOT:-/tmp/${USER}-l
 mkdir -p "$CARGO_TARGET_DIR"
 TIMEOUT_SECS=${TIMEOUT_SECS:-15}
 REPS=${REPS:-3}
-TESTS="current multi"
+TESTS="current multi localset"
 RUNTIMES="tokio-1.21 tokio-1.42 tokio-1.44 tokio-latest lion"
+# The causation control for "localset" (Tokio 1.52.3 + the one repair). Its
+# source is derived output, so it joins the run only once tokio-patched/prepare.sh
+# has materialized it — the suite is still runnable without that step.
+if [ -d "$SCRIPT_DIR/tokio-patched/vendor/tokio-1.52.3" ]; then
+  RUNTIMES="$RUNTIMES tokio-patched"
+else
+  echo "note: tokio-patched skipped (run tokio-patched/prepare.sh to include the"
+  echo "      causation control for the localset configuration)"
+fi
 RESULTS="$SCRIPT_DIR/results.jsonl"
 
 echo "=========================================="
