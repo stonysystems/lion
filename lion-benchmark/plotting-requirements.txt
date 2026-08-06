@@ -5,9 +5,11 @@
 # Bounded rather than exactly pinned: the figures are renderings of the CSV data
 # the experiments produce, so the version does not affect any measurement or
 # conclusion — the bound exists only so that a future major release cannot break
-# plot.py on a machine that installs this months from now. The floors are the
-# oldest releases with the APIs plot.py uses; the ceilings exclude the next major
-# version. Verified with matplotlib 3.10.9 and numpy 2.2.6.
+# plot.py on a machine that installs this months from now. Both plot scripts use
+# only long-stable APIs (pyplot/Axes drawing, gridspec, a named colormap;
+# arange/histogram/linspace/log/zeros from numpy), so the floors are conservative
+# rather than tight; the ceilings exclude the next major version. Verified with
+# matplotlib 3.10.9 and numpy 2.2.6.
 #
 # The ranges stay installable on older Pythons (matplotlib 3.7 supports 3.8+),
 # which an exact pin would not.
