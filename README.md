@@ -29,9 +29,62 @@ assumptions it is guaranteed to be driven to completion."*
 A detailed treatment of L2S will appear in the Lion paper (SOSP '26); an
 extended technical report is available in
 [`lion-liveness/doc/`](lion-liveness/doc/) (prebuilt `main.pdf`; rebuild with
-`build.sh`).
+`build.sh`). Where the artifact and the submitted manuscript differ — the
+evaluation numbers were re-collected on new machines for the camera-ready — the
+section "compare conclusions, not absolute numbers" below says what to expect.
+
+A component-by-component map of the repository — what each crate is and
+where it appears in the paper — is in
+[`REPOSITORY_MAP.md`](REPOSITORY_MAP.md).
 
 ## Running the experiments
+
+### Before you run
+
+| | |
+|---|---|
+| Time | ~4 h for the full `collect_paper_data.sh`, of which ~3.5 h is measurement time fixed by the protocol (30 s × 10 runs per cell) — a faster machine shortens the builds, not the measurement |
+| Disk | ~10 GB: a fresh clone is 93 MB, the toolchains `setup.sh` installs ~5 GB, build artifacts ~4.8 GB |
+| Memory | **≥ 16 GB.** Every step but one peaks below 2 GB; the micro benchmark's timer cells reach ~10 GB in a single process |
+| Cores | no minimum; the cross-machine rows need a second host, and the paper's link is 1 GbE |
+
+- [`REQUIREMENTS.md`](REQUIREMENTS.md) — the machine the reference dataset was
+  collected on, the full dependency list, and the per-stage time, disk and
+  memory budget.
+- [`EXPECTED_OUTPUT.md`](EXPECTED_OUTPUT.md) — what each step prints when it is
+  working, which alarming-looking messages are expected (**nine of the thirty
+  correctness-stress cells are supposed to hang**), and which ones mean the
+  result is invalid.
+
+To undo everything afterwards, `./uninstall.sh` (dry run by default, `--yes` to
+apply) removes exactly what `setup.sh` installed — it replays the manifest
+`setup.sh` writes, so anything the machine already had is left alone — plus the
+build artifacts and experiment output.
+
+### Reproducing the paper's results, start to finish
+
+1. **Install the proof toolchain** — `./setup.sh` in the repository root (Rust
+   1.91.0 + Verus into `verus-toolchain/`).
+2. **Check the proofs** — `./ci.sh`. This is the claim in the paper's
+   verification sections; it takes 1–2 min and ends in `All checks passed`.
+3. **Install the experiment toolchain** — `SETUP_IRONFLEET=1
+   lion-benchmark/setup.sh`. Drop `SETUP_IRONFLEET=1` to skip the IronFleet
+   experiment (it pulls Dafny and .NET).
+4. **Decide on the topology.** The micro, correctness-stress and pingora
+   experiments are single-machine and need nothing further. The rumqtt, axum and
+   IronFleet rows are cross-machine: copy `real-world/hosts.env.example` to
+   `real-world/hosts.env`, fill in the two hosts, and run
+   `lion-benchmark/setup.sh` **on the client host as well**
+   (`SETUP_IRONFLEET=1` there too). Without `hosts.env` those three run fully
+   local, which is a smoke test rather than the paper's measurement — each
+   `run.sh` prints the topology it actually used.
+5. **Collect** — `STAGES="realworld micro stress ironfleet"
+   lion-benchmark/collect_paper_data.sh` runs everything in the paper's protocol
+   (~4 h), or run individual `run.sh` scripts as below.
+6. **Compare** — against each experiment's `ref-result/` and `ref-2/`, using the
+   relative conclusions listed under "compare conclusions, not absolute numbers"
+   below, not the absolute values.
+7. **Clean up** — `./uninstall.sh --yes`.
 
 Each experiment under `lion-benchmark/` has its own `README.md` and a `run.sh`
 (with a methodology header); start there for full instructions. In brief:
