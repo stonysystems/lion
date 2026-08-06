@@ -113,12 +113,20 @@ wrk_parse() {
 }
 
 # Run a command on the client host: locally, or on CLIENT_HOST over ssh.
+#
+# ~/.local/bin is put on PATH for the remote command because setup.sh installs
+# wrk there whenever no distro package or root is available, and a non-interactive
+# ssh never picks it up (Ubuntu's .bashrc returns before its PATH lines when the
+# shell is not interactive). Without it require_client_tool's check succeeds --
+# it accepts ~/.local/bin/$tool -- and the run itself then dies on
+# "wrk: command not found", i.e. the probe and the execution disagreed.
 on_client() {
   if is_local "$CLIENT_HOST"; then
-    "$@"
+    "$@"                       # bench_setup already exported ~/.local/bin here
   else
     sshpass -p "${SSH_PASS:?set SSH_PASS in hosts.env for a remote CLIENT_HOST}" \
-      ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 "${SSH_USER:-$USER}@$CLIENT_HOST" "$@"
+      ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 "${SSH_USER:-$USER}@$CLIENT_HOST" \
+      "export PATH=\"\$HOME/.local/bin:\$PATH\"; $*"
   fi
 }
 

@@ -38,10 +38,11 @@ PORT="${PORT:-6145}"
 CONNS="${CONNS-50 200}"
 # Large-payload workload: a 10 KB POST body the echo app returns verbatim
 # (the paper table's "Large-10KB" row), run at PAYLOAD_CONNS connections.
-# Set PAYLOAD_CONNS="" to skip. Like axum's lua workloads, the script path
-# must resolve on the client host (same repo path there).
+# Set PAYLOAD_CONNS="" to skip. The script is staged to the client (below), not
+# named by its path here: this repo is not on the client under ALLOW_CROSS=1.
 PAYLOAD_CONNS="${PAYLOAD_CONNS-50}"
 PAYLOAD_LUA="$DIR/src/benchmark/post10k.lua"
+PAYLOAD_LUA_CLIENT=""
 LION_T="$(bench_target_dir "$DIR/src/lion-pingora")"
 TOKIO_T="$(bench_target_dir "$DIR/src/tokio-pingora")"
 LION="$LION_T/release/examples/server"
@@ -49,6 +50,17 @@ TOKIO="$TOKIO_T/release/examples/server"
 RAW="$OUTDIR/pingora_raw.csv"
 
 command -v wrk >/dev/null 2>&1 || { echo "wrk not found — run ../../setup.sh" >&2; exit 1; }
+
+# Stage the wrk script where the load generator can open it. With the canonical
+# ALLOW_CROSS=0 topology the client is this host and this is a no-op; under
+# ALLOW_CROSS=1 a server-side path would resolve only on a shared filesystem,
+# and wrk answers an unopenable -s script by warning and EXITING 0, degrading
+# payload10k into a bare GET of the echo endpoint — which returns 200, so no
+# error counter would catch it and the row would read as inflated throughput.
+if [ -n "$PAYLOAD_CONNS" ]; then
+  [ -f "$PAYLOAD_LUA" ] || { echo "FATAL: wrk script $PAYLOAD_LUA missing" >&2; exit 4; }
+  PAYLOAD_LUA_CLIENT="$(client_stage "$PAYLOAD_LUA")"
+fi
 
 echo "== build =="
 (cd "$DIR/src/tokio-pingora" && CARGO_TARGET_DIR="$TOKIO_T" cargo build --release --example server -p pingora 2>&1 | tail -1)
@@ -92,7 +104,12 @@ for r in $(seq 1 "$RUNS"); do
       echo "pingora,$rt,conns$c,$c,$r,${rps:-0},${lat:-0}" | tee -a "$RAW"
     done
     if [ -n "$PAYLOAD_CONNS" ]; then
-      out=$(on_client wrk -t2 -c"$PAYLOAD_CONNS" -d"${DURATION}s" -s "$PAYLOAD_LUA" "http://$SERVER_HOST:$PORT" 2>&1)
+      out=$(on_client wrk -t2 -c"$PAYLOAD_CONNS" -d"${DURATION}s" -s "$PAYLOAD_LUA_CLIENT" "http://$SERVER_HOST:$PORT" 2>&1)
+      case "$out" in *"cannot open"*)
+        echo "FATAL: wrk could not load $PAYLOAD_LUA_CLIENT on $CLIENT_HOST —"
+        echo "       payload10k would have degenerated to a bare GET and been recorded as throughput."
+        server_stop; exit 5;;
+      esac
       rps=$(echo "$out" | awk '/Requests\/sec/{print $2}')
       lat=$(echo "$out" | awk '/Latency/{print $2; exit}')
       echo "pingora,$rt,payload10k,$PAYLOAD_CONNS,$r,${rps:-0},${lat:-0}" | tee -a "$RAW"

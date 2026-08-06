@@ -69,11 +69,16 @@ Measurement notes (both runtimes identically, so ratios are unaffected):
 # one-time toolchain (Dafny 3.4.0 + .NET 6.0 + scons); cdylib needs only cargo:
 SETUP_IRONFLEET=1 ../setup.sh
 
-# localhost, Lion async I/O, unpinned:
+# Lion async I/O, unpinned. Topology comes from ../real-world/hosts.env if that
+# file exists (the client then runs on CLIENT_HOST, which needs its own .NET:
+# SETUP_IRONFLEET=1 setup.sh there too), otherwise everything runs on this host.
+# Either way the run prints the topology it is using before it starts.
 ./run.sh
 # C# IoScheduler baseline:           RUNTIME=csharp ./run.sh
 # pin each replica to one core:      CONFIG=1core ./run.sh
-# two-host example:                  SERVER_HOST=<server-ip> CLIENT_HOST=<client-ip> \
+# all four cells the paper reports:  ./run_all.sh
+# force a local run despite hosts.env:   CLIENT_HOST=127.0.0.1 ./run.sh
+# two-host without hosts.env:        SERVER_HOST=<server-ip> CLIENT_HOST=<client-ip> \
 #                                    SSH_USER=<user> SSH_PASS=... ./run.sh
 ```
 

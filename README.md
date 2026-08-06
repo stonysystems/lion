@@ -40,6 +40,10 @@ Each experiment under `lion-benchmark/` has its own `README.md` and a `run.sh`
 cd lion-benchmark
 ./setup.sh                     # one-time deps (cmake, wrk, plotting venv, ...)
 SETUP_IRONFLEET=1 ./setup.sh   # additionally for ironfleet (Dafny 3.4 + .NET 6 + scons)
+# For a cross-machine run, setup.sh must also be run ON THE CLIENT HOST: it needs
+# wrk locally, and the IronRSL client is a .NET app (so SETUP_IRONFLEET=1 there
+# too). Nothing else has to be installed or checked out there — the benchmarks
+# ship the scripts and binaries the client needs and assume no shared filesystem.
 
 ./micro/run.sh                 # micro benchmarks (local)
 ./real-world/pingora/run.sh    # local (canonical); rumqtt / axum need hosts.env (cross-machine)
@@ -53,9 +57,11 @@ SETUP_IRONFLEET=1 ./setup.sh   # additionally for ironfleet (Dafny 3.4 + .NET 6 
 STAGES="realworld micro ironfleet" ./collect_paper_data.sh
 ```
 
-micro, ironfleet, correctness-stress, and the pingora benchmark default to
-a local run; the rumqtt and axum benchmarks reproduce the paper's
-cross-machine topology and require `hosts.env`. Duration, reps, and other
+micro, correctness-stress, and the pingora benchmark are single-machine; the
+rumqtt, axum, and ironfleet benchmarks reproduce the paper's cross-machine
+topology and read `real-world/hosts.env` (without it they run fully local,
+which is a smoke test rather than the paper's measurement — each run.sh
+prints the topology it is actually using). Duration, reps, and other
 knobs are environment variables documented in each experiment's
 README/run.sh. Compare your output against the shipped reference dataset:
 each experiment has a `ref-result/` collected from a fresh clone of this

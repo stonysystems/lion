@@ -16,8 +16,10 @@
 #   SERVER_HOST=<server-ip> CLIENT_HOST=<client-ip> ./run.sh   # two-host
 #   ./run_all.sh                              # all four cells the paper reports
 #
-# Cross-machine: the replicas run here and the client on CLIENT_HOST (set
-# SSH_USER/SSH_PASS). No shared filesystem is assumed — bin/ and certs/ are
+# Cross-machine: the replicas run here and the client on CLIENT_HOST, taken from
+# real-world/hosts.env (the same file the real-world benchmarks read) or from the
+# environment, which overrides it — CLIENT_HOST=127.0.0.1 ./run.sh forces a local
+# run even with a cluster configured. No shared filesystem is assumed — bin/ and certs/ are
 # copied to the client (IRONFLEET_CLIENT_DIR, default /tmp/lion-ironfleet-client)
 # and .NET must be installed there too (SETUP_IRONFLEET=1 ../setup.sh).
 # SERVER_HOST must be this host's routable address, since the replica addresses
@@ -37,6 +39,14 @@ RUNTIME="${RUNTIME:-lion}"          # lion | csharp
 CONFIG="${CONFIG:-unpin}"           # unpin | 1core
 NTHREADS="${NTHREADS:-2}"           # concurrent client connections (paper: 2)
 DURATION="${DURATION:-30}"
+# Topology from real-world/hosts.env, exactly as lib/bench_common.sh does it for
+# the other benchmarks. Without this a configured two-host cluster silently fell
+# back to localhost here: every cell ran, produced valid-looking numbers, and
+# nothing said they were not the cross-machine measurement that was asked for.
+# hosts.env uses the `: "${VAR:=}"` form, so the environment still wins.
+HOSTS_ENV="$DIR/../real-world/hosts.env"
+# shellcheck disable=SC1091
+[ -f "$HOSTS_ENV" ] && . "$HOSTS_ENV"
 SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
 CLIENT_HOST="${CLIENT_HOST:-$SERVER_HOST}"
 if [ -z "${DOTNET:-}" ] && [ -x "$HOME/.dotnet/dotnet" ]; then DOTNET="$HOME/.dotnet/dotnet"; fi
@@ -82,6 +92,16 @@ if [ "$CLIENT_HOST" != "$SERVER_HOST" ] && [ "$CLIENT_HOST" != 127.0.0.1 ] && [ 
     echo "FATAL: no dotnet on client $CLIENT_HOST — the IronRSL client is a .NET app."
     echo "       Run  SETUP_IRONFLEET=1 lion-benchmark/setup.sh  on the client as well."
     exit 1; }
+fi
+
+# State the topology this run will actually use. A cell measured with the client
+# on this host is a different experiment from one driven across the link, and the
+# two are indistinguishable in the .reqlog afterwards.
+if [ "$REMOTE_CLIENT" = 1 ]; then
+  echo "== topology: replicas on $SERVER_HOST, client on $CLIENT_HOST (remote, over ssh) =="
+else
+  echo "== topology: replicas and client both on $SERVER_HOST (LOCAL — not the paper's"
+  echo "   cross-machine setup; set SERVER_HOST/CLIENT_HOST in real-world/hosts.env for that) =="
 fi
 
 echo "== build Lion I/O cdylib =="
