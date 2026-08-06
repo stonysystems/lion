@@ -96,3 +96,6 @@ servers.txt
 # draw.io autosave backups
 .$*.drawio.bkp
 *.drawio.bkp
+
+# Written by setup.sh; consumed by uninstall.sh
+.setup-manifest

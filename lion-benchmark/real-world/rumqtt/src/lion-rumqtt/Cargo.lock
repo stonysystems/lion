@@ -1315,7 +1315,6 @@ dependencies = [
  "lion-executor",
  "lion-macro",
  "lion-reactor",
- "lion-utilities-v2-v",
  "lion-utility",
  "tokio",
 ]
@@ -1326,10 +1325,29 @@ version = "0.1.0"
 dependencies = [
  "flume",
  "futures-task",
+ "lion-executor-spec",
+ "lion-framework-spec",
  "lion-reactor",
+ "lion-reactor-spec",
  "lion-slab",
  "lion-timer-wheel",
+ "lion-utility-spec",
  "pin-project-lite",
+ "vstd",
+]
+
+[[package]]
+name = "lion-executor-spec"
+version = "0.1.0"
+dependencies = [
+ "lion-framework-spec",
+ "vstd",
+]
+
+[[package]]
+name = "lion-framework-spec"
+version = "0.1.0"
+dependencies = [
  "vstd",
 ]
 
@@ -1346,9 +1364,21 @@ dependencies = [
 name = "lion-reactor"
 version = "0.1.0"
 dependencies = [
+ "lion-framework-spec",
+ "lion-reactor-spec",
  "lion-slab",
  "lion-timer-wheel",
+ "lion-utility-spec",
  "mio",
+ "vstd",
+]
+
+[[package]]
+name = "lion-reactor-spec"
+version = "0.1.0"
+dependencies = [
+ "lion-framework-spec",
+ "lion-utility-spec",
  "vstd",
 ]
 
@@ -1367,22 +1397,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "lion-utilities-v2-v"
-version = "0.1.0"
-dependencies = [
- "lion-executor",
- "lion-reactor",
- "mio",
- "socket2 0.5.10",
- "tokio",
- "vstd",
-]
-
-[[package]]
 name = "lion-utility"
 version = "0.1.0"
 dependencies = [
  "lion-executor",
+ "lion-framework-spec",
  "lion-reactor",
  "lion-utility-spec",
  "mio",
@@ -1395,6 +1414,7 @@ dependencies = [
 name = "lion-utility-spec"
 version = "0.1.0"
 dependencies = [
+ "lion-framework-spec",
  "vstd",
 ]
 
