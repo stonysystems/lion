@@ -14,9 +14,14 @@
 #   RUNTIME=csharp ./run.sh                   # C# IoScheduler baseline
 #   CONFIG=1core ./run.sh                     # pin each replica to one core
 #   SERVER_HOST=<server-ip> CLIENT_HOST=<client-ip> ./run.sh   # two-host
+#   ./run_all.sh                              # all four cells the paper reports
 #
-# Cross-machine note: Zoo shares NFS, so generate certs once on the server side and
-# run the client from the same path on CLIENT_HOST (set CLIENT_HOST + SSH_USER/PASS).
+# Cross-machine: the replicas run here and the client on CLIENT_HOST (set
+# SSH_USER/SSH_PASS). No shared filesystem is assumed — bin/ and certs/ are
+# copied to the client (IRONFLEET_CLIENT_DIR, default /tmp/lion-ironfleet-client)
+# and .NET must be installed there too (SETUP_IRONFLEET=1 ../setup.sh).
+# SERVER_HOST must be this host's routable address, since the replica addresses
+# are baked into the generated service file the client reads.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -52,6 +57,32 @@ REP_SUFFIX="${REP_SUFFIX:-}"
 
 command -v "$DOTNET" >/dev/null 2>&1 || { echo "dotnet not found (SETUP_IRONFLEET=1 ../setup.sh)"; exit 1; }
 [ "$RUNTIME" = lion ] && LION=true || LION=false
+
+client_ssh() {
+  sshpass -p "${SSH_PASS:?set SSH_PASS for a remote CLIENT_HOST}" \
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+    "${SSH_USER:?set SSH_USER for a remote CLIENT_HOST}@$CLIENT_HOST" "$@"
+}
+
+# Cross-machine preflight, before the multi-minute build: a remote client shares
+# no filesystem with this host (ours does, via NFS, which is why referring to a
+# server-side path used to work here and nowhere else) and needs its own .NET.
+REMOTE_CLIENT=0
+CLIENT_APP="${IRONFLEET_CLIENT_DIR:-/tmp/lion-ironfleet-client}"
+if [ "$CLIENT_HOST" != "$SERVER_HOST" ] && [ "$CLIENT_HOST" != 127.0.0.1 ] && [ "$CLIENT_HOST" != localhost ]; then
+  REMOTE_CLIENT=1
+  case "$SERVER_HOST" in 127.0.0.1|localhost)
+    echo "FATAL: CLIENT_HOST=$CLIENT_HOST is remote but SERVER_HOST=$SERVER_HOST."
+    echo "       Replica addresses are baked into the service file, so the remote client"
+    echo "       would dial its own loopback. Set SERVER_HOST to this host's routable"
+    echo "       address in real-world/hosts.env."
+    exit 1;;
+  esac
+  client_ssh 'command -v dotnet >/dev/null 2>&1 || [ -x "$HOME/.dotnet/dotnet" ]' || {
+    echo "FATAL: no dotnet on client $CLIENT_HOST — the IronRSL client is a .NET app."
+    echo "       Run  SETUP_IRONFLEET=1 lion-benchmark/setup.sh  on the client as well."
+    exit 1; }
+fi
 
 echo "== build Lion I/O cdylib =="
 (cd "$CDYLIB" && CARGO_TARGET_DIR="${BENCH_TARGET_ROOT:-/tmp/${USER}-lion-bench}/lion-io" cargo build --release 2>&1 | tail -1)
@@ -140,14 +171,22 @@ CPU_SAMPLER=$!
 
 RAW="$RESULTS_DIR/${RUNTIME}_${CONFIG}${REP_SUFFIX}.reqlog"
 echo "== run client (nthreads=$NTHREADS duration=${DURATION}s) from $CLIENT_HOST =="
-CLIENT_CMD=("$DOTNET" bin/IronRSLCounterClient.dll "$SVC" "nthreads=$NTHREADS" "duration=$DURATION")
-if [ "$CLIENT_HOST" = "$SERVER_HOST" ] || [ "$CLIENT_HOST" = 127.0.0.1 ]; then
-  "${CLIENT_CMD[@]}" > "$RAW" 2>&1 || true
+CLIENT_RC=0
+if [ "$REMOTE_CLIENT" = 0 ]; then
+  "$DOTNET" bin/IronRSLCounterClient.dll "$SVC" "nthreads=$NTHREADS" "duration=$DURATION" \
+    > "$RAW" 2>&1 || CLIENT_RC=$?
 else
-  # remote client over NFS-shared path (set SSH_USER/SSH_PASS for zoo)
-  sshpass -p "${SSH_PASS:?set SSH_PASS for remote client}" \
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${SSH_USER:?set SSH_USER}@$CLIENT_HOST" \
-    "cd '$APP' && LD_LIBRARY_PATH='$APP/bin' ${CLIENT_CMD[*]}" > "$RAW" 2>&1 || true
+  # Ship the client app over instead of naming a server-side path: bin/ (the
+  # .NET client and its dependencies) plus certs/ (the service file carrying
+  # the replica addresses). dotnet is resolved on the client, not here.
+  echo "   staging client app -> $CLIENT_HOST:$CLIENT_APP"
+  client_ssh "rm -rf '$CLIENT_APP' && mkdir -p '$CLIENT_APP'"
+  sshpass -p "$SSH_PASS" scp -qr -o StrictHostKeyChecking=no \
+    bin certs "$SSH_USER@$CLIENT_HOST:$CLIENT_APP/"
+  client_ssh "cd '$CLIENT_APP' && export LD_LIBRARY_PATH='$CLIENT_APP/bin' && \
+      D=\$(command -v dotnet || echo \$HOME/.dotnet/dotnet) && \
+      \"\$D\" bin/IronRSLCounterClient.dll '$SVC' nthreads=$NTHREADS duration=$DURATION" \
+    > "$RAW" 2>&1 || CLIENT_RC=$?
 fi
 
 kill "$CPU_SAMPLER" 2>/dev/null || true
@@ -155,6 +194,17 @@ pkill -x dotnet 2>/dev/null || true
 # Keep the per-run raw CPU samples next to the reqlog (project rule: per-run
 # raw data is archived; summaries are recomputed from it afterwards).
 cp "$CPU_LOG" "$RESULTS_DIR/${RUNTIME}_${CONFIG}${REP_SUFFIX}.cpulog" 2>/dev/null || true
+
+# A cell that produced no measurement must fail the stage. This used to be
+# `|| true` with no check, so a client that never started (e.g. a path that
+# does not exist on the client host) left a shell error in the .reqlog and the
+# collector still reported success for all four cells.
+if [ "$CLIENT_RC" != 0 ] || ! grep -q '^#req' "$RAW"; then
+  echo "FATAL: client produced no request records (exit $CLIENT_RC) — $RAW"
+  echo "       first lines of the client output:"
+  sed -n '1,5p' "$RAW" | sed 's/^/         /'
+  exit 1
+fi
 
 echo "== results ($RUNTIME / $CONFIG) =="
 python3 - "$RAW" "$DURATION" "$CPU_LOG" <<'PY'

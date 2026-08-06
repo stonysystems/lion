@@ -116,9 +116,22 @@ if [ "${SETUP_IRONFLEET:-0}" = "1" ]; then
     echo "scons already installed."
   else
     echo "Installing scons (pip --user) ..."
-    python3 -m pip install --user scons \
-      || python3 -m pip install --user --break-system-packages scons \
-      || echo "Warning: failed to install scons; install manually." >&2
+    # Debian/Ubuntu ship no pip for the system python and disable ensurepip for
+    # it, so `python3 -m pip` fails outright there; a private venv is the
+    # root-less way that works on a stock image. (scons runs standalone from
+    # its own venv — nothing else imports it.)
+    python3 -m pip install --user scons 2>/dev/null \
+      || python3 -m pip install --user --break-system-packages scons 2>/dev/null \
+      || {
+        SCONS_VENV="$HOME/.local/share/lion-scons-venv"
+        echo "  no usable system pip; installing scons into $SCONS_VENV ..."
+        python3 -m venv "$SCONS_VENV" \
+          && "$SCONS_VENV/bin/pip" install -q --upgrade pip \
+          && "$SCONS_VENV/bin/pip" install -q scons \
+          && mkdir -p "$HOME/.local/bin" \
+          && ln -sf "$SCONS_VENV/bin/scons" "$HOME/.local/bin/scons" \
+          || echo "Warning: failed to install scons; install manually." >&2
+      }
     echo "  (ensure ~/.local/bin is on PATH)"
   fi
 

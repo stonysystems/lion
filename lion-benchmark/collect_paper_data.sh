@@ -7,8 +7,12 @@
 #
 # Usage:
 #   ./collect_paper_data.sh                          # default stages: realworld micro
-#   STAGES="realworld micro ironfleet" ./collect_paper_data.sh
+#   STAGES="realworld micro stress ironfleet" ./collect_paper_data.sh   # everything
 #   MICRO_BATCHES=2 ./collect_paper_data.sh          # micro batch count (default 1)
+#
+# Stages: realworld, micro, stress (correctness-stress), ironfleet. Only
+# realworld and ironfleet need real-world/hosts.env; the other two are
+# single-machine.
 #
 # Every stage writes results under <experiment>/results/<UTC-stamp>-<mode>/
 # together with a PROVENANCE.txt (commit, host, CPU, kernel, governor, link
@@ -97,12 +101,28 @@ run_stage_ironfleet() {
   provenance "$DIR/ironfleet/$out/PROVENANCE.txt" "reps=$reps per cell (interleaved rep-outer), 30s each, cells={lion,csharp}x{unpin,1core}"
 }
 
+run_stage_stress() {
+  # Single-machine and needs no hosts.env, but it backs a paper claim, so it
+  # belongs in the one-command dataset rather than in a separate manual step.
+  local out="$DIR/correctness-stress/results/$STAMP-paper"
+  echo "===== [$(date -Is)] correctness-stress ====="
+  mkdir -p "$out"
+  (cd "$DIR/correctness-stress" && REPS="${STRESS_REPS:-3}" ./run.sh) \
+    || { echo "STAGE FAILED: correctness-stress"; return 1; }
+  for f in results.jsonl events.tsv stress_heatmap.pdf; do
+    cp "$DIR/correctness-stress/$f" "$out/" 2>/dev/null || true
+  done
+  provenance "$out/PROVENANCE.txt" "REPS=${STRESS_REPS:-3} per (test,runtime), timeout=hang oracle"
+  echo "results: $out"
+}
+
 rc=0
 for st in $STAGES; do
   case "$st" in
     realworld) run_stage_realworld || rc=1 ;;
     micro)     run_stage_micro     || rc=1 ;;
     ironfleet) run_stage_ironfleet || rc=1 ;;
+    stress)    run_stage_stress    || rc=1 ;;
     *) echo "unknown stage: $st"; rc=1 ;;
   esac
 done

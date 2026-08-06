@@ -75,6 +75,43 @@ client_push() {
   sshpass -p "${SSH_PASS:?}" scp -q -o StrictHostKeyChecking=no "$1"     "${SSH_USER:-$USER}@$CLIENT_HOST:$2"
 }
 
+# client_stage <local-file> — make a file available to the client and echo the
+# path it has THERE (unchanged when the client is this host).
+#
+# A cross-host command must never name a path that only exists on the server.
+# Our own cluster shares one NFS home, so a server-side path happens to resolve
+# on the client too and this class of mistake produces correct results here and
+# silent nonsense on any two independently provisioned machines.
+CLIENT_STAGE_DIR="${CLIENT_STAGE_DIR:-/tmp/lion-bench-stage}"
+client_stage() {
+  if is_local "$CLIENT_HOST"; then echo "$1"; return 0; fi
+  local dst="$CLIENT_STAGE_DIR/$(basename "$1")"
+  client_push "$1" "$dst"
+  echo "$dst"
+}
+
+# wrk_parse <wrk-output> — echo "rps,latency,transfer_Bps,non2xx,sockerr".
+#
+# Requests/sec alone cannot tell a link-saturated cell from an error storm: a
+# 404 with an empty body sustains a high request rate at negligible bandwidth,
+# which reads as a fast runtime. Transfer/sec and the Non-2xx counter separate
+# the two, so they are recorded per run rather than discarded.
+wrk_parse() {
+  printf '%s\n' "$1" | awk '
+    /Requests\/sec/ { rps=$2 }
+    /Latency/ && lat=="" { lat=$2 }
+    /Transfer\/sec/ {
+      v=$2; u=v; sub(/[0-9.]+/,"",u); sub(/[A-Za-z]+$/,"",v)
+      m=1
+      if (u=="KB") m=1024; else if (u=="MB") m=1048576; else if (u=="GB") m=1073741824
+      tx=v*m
+    }
+    /Non-2xx or 3xx responses/ { n2=$NF }
+    /Socket errors/ { gsub(/[^0-9 ]/," "); for(i=1;i<=NF;i++) se+=$i }
+    END { printf "%s,%s,%.0f,%d,%d\n", (rps==""?0:rps), (lat==""?0:lat), tx+0, n2+0, se+0 }
+  '
+}
+
 # Run a command on the client host: locally, or on CLIENT_HOST over ssh.
 on_client() {
   if is_local "$CLIENT_HOST"; then

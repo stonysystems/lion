@@ -46,7 +46,26 @@ pkill -x axum-fileserver 2>/dev/null || true
 sleep 1
 
 WORKLOADS="${WORKLOADS:-small large mixed}"
-echo "system,runtime,workload,conns,run,rps,latency" > "$RAW"
+# Stage the wrk scripts on the client once. The remote wrk must be handed a path
+# that exists THERE; a server-side path silently resolves only because our own
+# cluster shares an NFS home. A missing script is fatal rather than a fallback
+# to one fixed URL — that fallback would run all three workloads against the
+# same object and report three near-identical numbers as if they were distinct.
+for wl in $WORKLOADS; do
+  [ -f "$LUA_DIR/$wl.lua" ] || { echo "FATAL: wrk script $LUA_DIR/$wl.lua missing" >&2; exit 4; }
+  client_stage "$LUA_DIR/$wl.lua" >/dev/null
+done
+# client_lua <workload> — where the client finds that script (no associative
+# arrays: this must run under the bash 3.2 that ships on macOS).
+client_lua() {
+  if is_local "$CLIENT_HOST"; then echo "$LUA_DIR/$1.lua"; else echo "$CLIENT_STAGE_DIR/$1.lua"; fi
+}
+
+# transfer_bps/non2xx/sockerr are recorded per run: req/s alone cannot separate
+# a link-saturated cell from a 404 storm (an empty-body error sustains a high
+# request rate at negligible bandwidth). rps stays field 6 for summarize_raw.
+CSV_HEAD="system,runtime,workload,conns,run,rps,latency,transfer_bps,non2xx,sockerr"
+echo "$CSV_HEAD" > "$RAW"
 echo "== run (server=$SERVER_HOST client=$CLIENT_HOST ${DURATION}s x ${RUNS}) =="
 # The paper measures axum in BOTH deployments: cross-machine (bandwidth-bound
 # sanity rows) and localhost (the rows that expose runtime differences).
@@ -54,7 +73,7 @@ echo "== run (server=$SERVER_HOST client=$CLIENT_HOST ${DURATION}s x ${RUNS}) ==
 # this machine against 127.0.0.1. Interleaved A-B protocol in both (run outer,
 # runtime inner, server restart per cell).
 RAW_LOCAL="$OUTDIR/axum_local_raw.csv"
-echo "system,runtime,workload,conns,run,rps,latency" > "$RAW_LOCAL"
+echo "$CSV_HEAD" > "$RAW_LOCAL"
 # DEPLOYMENTS knob: run a subset (e.g. DEPLOYMENTS=local to (re)collect only
 # the localhost rows). Default = both, the paper protocol.
 DEPLOYMENTS="${DEPLOYMENTS:-cross local}"
@@ -64,29 +83,43 @@ for deployment in $DEPLOYMENTS; do
       [ "$rt" = tokio ] && BIN="$TOKIO" || BIN="$LION"
       server_start "/tmp/axum_$rt.log" "$BIN" --host 0.0.0.0 --port "$PORT" --root "$ROOT"
       sleep 3
-      if ! curl -s -m 3 "http://127.0.0.1:$PORT/small/f1.bin" >/dev/null 2>&1; then
-        echo "  $rt: server not ready ($(tail -1 /tmp/axum_$rt.log))"; server_stop; continue
+      # 200 AND a non-empty body: `curl -s` alone succeeds on a 404, so the
+      # original check passed even when the test files were absent.
+      probe=$(curl -s -o /dev/null -m 3 -w '%{http_code} %{size_download}' \
+                "http://127.0.0.1:$PORT/small/f1.bin" 2>/dev/null || echo "000 0")
+      if [ "${probe% *}" != 200 ] || [ "${probe#* }" -eq 0 ]; then
+        echo "  $rt: server not serving files [$probe] ($(tail -1 /tmp/axum_$rt.log))"
+        server_stop; continue
       fi
       for wl in $WORKLOADS; do
-        lua="$LUA_DIR/$wl.lua"; [ -f "$lua" ] || lua=""
         if [ "$deployment" = cross ]; then
           target="http://$SERVER_HOST:$PORT"; sink="$RAW"
-          if [ -n "$lua" ]; then
-            out=$(on_client wrk -t2 -c"$CONNS" -d"${DURATION}s" -s "$lua" "$target" 2>&1)
-          else
-            out=$(on_client wrk -t2 -c"$CONNS" -d"${DURATION}s" "$target/small/f1.bin" 2>&1)
-          fi
+          out=$(on_client wrk -t2 -c"$CONNS" -d"${DURATION}s" -s "$(client_lua "$wl")" "$target" 2>&1) \
+            || { echo "FATAL: wrk failed on client $CLIENT_HOST"; echo "$out"; server_stop; exit 5; }
         else
           target="http://127.0.0.1:$PORT"; sink="$RAW_LOCAL"
-          if [ -n "$lua" ]; then
-            out=$(wrk -t2 -c"$CONNS" -d"${DURATION}s" -s "$lua" "$target" 2>&1)
-          else
-            out=$(wrk -t2 -c"$CONNS" -d"${DURATION}s" "$target/small/f1.bin" 2>&1)
-          fi
+          out=$(wrk -t2 -c"$CONNS" -d"${DURATION}s" -s "$LUA_DIR/$wl.lua" "$target" 2>&1) \
+            || { echo "FATAL: wrk failed locally"; echo "$out"; server_stop; exit 5; }
         fi
-        rps=$(echo "$out" | awk '/Requests\/sec/{print $2}')
-        lat=$(echo "$out" | awk '/Latency/{print $2; exit}')
-        echo "axum,$rt,$wl,$CONNS,$r,${rps:-0},${lat:-0}" | tee -a "$sink"
+        # wrk EXITS 0 when -s cannot be opened: it warns on stderr and silently
+        # falls back to requesting the bare URL, so every response is a 404 and
+        # the cell reports a high request rate at negligible bandwidth. Catch
+        # the warning itself, not just the symptom below.
+        case "$out" in *"cannot open"*)
+          echo "FATAL: wrk could not load its Lua script for $deployment/$wl:"
+          printf '%s\n' "$out" | grep 'cannot open' | head -2 | sed 's/^/         /'
+          echo "       Every request would have degenerated to GET / (a 404)."
+          server_stop; exit 5;;
+        esac
+        IFS=, read -r rps lat tx n2 se <<<"$(wrk_parse "$out")"
+        echo "axum,$rt,$wl,$CONNS,$r,$rps,$lat,$tx,$n2,$se" | tee -a "$sink"
+        # An error storm must fail the cell, not be recorded as throughput.
+        if [ "$n2" -gt 0 ]; then
+          echo "FATAL: $deployment/$rt/$wl returned $n2 non-2xx responses at ${tx}B/s —"
+          echo "       the client is not receiving file bodies; the number above measures errors."
+          echo "       Check that $ROOT/{small,large} are populated and reachable from $CLIENT_HOST."
+          server_stop; exit 5
+        fi
       done
       server_stop; sleep 2
     done
