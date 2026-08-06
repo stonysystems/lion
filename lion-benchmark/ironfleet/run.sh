@@ -43,10 +43,16 @@ DURATION="${DURATION:-30}"
 # the other benchmarks. Without this a configured two-host cluster silently fell
 # back to localhost here: every cell ran, produced valid-looking numbers, and
 # nothing said they were not the cross-machine measurement that was asked for.
-# hosts.env uses the `: "${VAR:=}"` form, so the environment still wins.
+# The environment wins over the file whatever form it is written in: a hosts.env
+# using plain `CLIENT_HOST=1.2.3.4` clobbers the caller's variables when sourced,
+# which would defeat the documented `CLIENT_HOST=127.0.0.1 ./run.sh` escape hatch
+# without saying so. Save the caller's values, source, restore.
 HOSTS_ENV="$DIR/../real-world/hosts.env"
+_e_server="${SERVER_HOST:-}"; _e_client="${CLIENT_HOST:-}"
 # shellcheck disable=SC1091
 [ -f "$HOSTS_ENV" ] && . "$HOSTS_ENV"
+[ -n "$_e_server" ] && SERVER_HOST="$_e_server"
+[ -n "$_e_client" ] && CLIENT_HOST="$_e_client"
 SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
 CLIENT_HOST="${CLIENT_HOST:-$SERVER_HOST}"
 if [ -z "${DOTNET:-}" ] && [ -x "$HOME/.dotnet/dotnet" ]; then DOTNET="$HOME/.dotnet/dotnet"; fi

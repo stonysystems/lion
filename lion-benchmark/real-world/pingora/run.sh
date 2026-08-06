@@ -27,6 +27,13 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 DURATION="${DURATION:-30}"
 bench_setup "$DIR"
 if [ "${ALLOW_CROSS:-0}" != "1" ]; then
+  # This is the canonical pingora topology, so a configured cluster is ignored
+  # here. Say so: bench_setup has just printed hosts.env's topology, and leaving
+  # that as the last word on the matter is how a local run gets read afterwards
+  # as a cross-machine one (ALLOW_CROSS=1 to override).
+  if [ "$SERVER_HOST" != "127.0.0.1" ] || [ "$CLIENT_HOST" != "127.0.0.1" ]; then
+    echo "[bench] pingora is measured on a single host — overriding the above to server=127.0.0.1 client=127.0.0.1"
+  fi
   SERVER_HOST=127.0.0.1
   CLIENT_HOST=127.0.0.1
 fi

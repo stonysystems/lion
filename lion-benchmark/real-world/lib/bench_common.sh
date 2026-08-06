@@ -25,12 +25,27 @@ bench_setup() {
   # on this host) — the canonical pingora topology and a single-machine
   # smoke for the others; rumqtt and axum need hosts.env to reproduce the
   # paper's cross-machine rows.
+  # The environment wins over hosts.env whatever form the file is written in.
+  # A file using plain `SERVER_HOST=1.2.3.4` (rather than the `: "${VAR:=}"`
+  # form) clobbers the caller's variables when sourced, so
+  # `CLIENT_HOST=127.0.0.1 ./run.sh` would silently measure the cluster
+  # topology instead of the local one it asked for — with nothing in the output
+  # to tell the two apart afterwards. Save the caller's values, source, restore.
+  local _e_server="${SERVER_HOST:-}" _e_client="${CLIENT_HOST:-}"
+  local _e_name="${CLIENT_NAME:-}" _e_user="${SSH_USER:-}"
+  local _e_pass="${SSH_PASS:-}" _e_repo="${REMOTE_REPO:-}"
   if [ -f "$RW_DIR/hosts.env" ]; then
     # shellcheck disable=SC1091
     . "$RW_DIR/hosts.env"
   else
     echo "[bench] no real-world/hosts.env — running fully local (see hosts.env.example)"
   fi
+  [ -n "$_e_server" ] && SERVER_HOST="$_e_server"
+  [ -n "$_e_client" ] && CLIENT_HOST="$_e_client"
+  [ -n "$_e_name" ]   && CLIENT_NAME="$_e_name"
+  [ -n "$_e_user" ]   && SSH_USER="$_e_user"
+  [ -n "$_e_pass" ]   && SSH_PASS="$_e_pass"
+  [ -n "$_e_repo" ]   && REMOTE_REPO="$_e_repo"
   CLIENT_HOST="${CLIENT_HOST:-127.0.0.1}"
   DURATION="${DURATION:-10}"
   RUNS="${RUNS:-10}"
