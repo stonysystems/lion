@@ -49,10 +49,15 @@ DURATION="${DURATION:-30}"
 # without saying so. Save the caller's values, source, restore.
 HOSTS_ENV="$DIR/../real-world/hosts.env"
 _e_server="${SERVER_HOST:-}"; _e_client="${CLIENT_HOST:-}"
+_e_user="${SSH_USER:-}"; _e_pass="${SSH_PASS:-}"
 # shellcheck disable=SC1091
 [ -f "$HOSTS_ENV" ] && . "$HOSTS_ENV"
 [ -n "$_e_server" ] && SERVER_HOST="$_e_server"
 [ -n "$_e_client" ] && CLIENT_HOST="$_e_client"
+# The credentials this run uses must follow the host it was told to use, or a
+# caller-supplied CLIENT_HOST is contacted with hosts.env's account.
+[ -n "$_e_user" ] && SSH_USER="$_e_user"
+[ -n "$_e_pass" ] && SSH_PASS="$_e_pass"
 SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
 CLIENT_HOST="${CLIENT_HOST:-$SERVER_HOST}"
 if [ -z "${DOTNET:-}" ] && [ -x "$HOME/.dotnet/dotnet" ]; then DOTNET="$HOME/.dotnet/dotnet"; fi
