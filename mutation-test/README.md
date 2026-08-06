@@ -7,7 +7,12 @@ Trusted-region control mutants additionally map the declared TCB boundary
 empirically.
 
 **Status**: EXECUTED (adjudicated results in results/; see RESULTS.md and
-results/matrix.md).
+results/matrix.md). Supplemental run: the correctness-stress column
+was extended from the M04/M05/M07/C1/C3 validity sample to ALL mutants via
+`./stress-all.sh` (results/stress-matrix.md, raw in results/stress-runs.jsonl;
+analysis in results/matrix.md). Headline addition: the whole timer-fire link
+(M01–M04) PASSES stress while the verifier rejects it — the executor-side
+mutants (M05–M10) all hang 3/3.
 
 **Mutant provenance**: the mutant list was designed by a large language model
 (prompted to break one link of the fire→drain→FIFO→poll liveness chain per

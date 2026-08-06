@@ -12,6 +12,11 @@ time: apply → plain `cargo build` (validity) → `./verify.sh` (verdict) →
 revert. Runtime hang checks for M04/M05/M07/C1/C3 against correctness-stress.
 Raw logs: `<id>-{apply,build,verify}.log`; adjudicated matrix: matrix.md.
 
+Supplemental run (main @ 97595a1): the correctness-stress column
+extended from the validity sample to ALL 13 mutants + baseline via
+../stress-all.sh (3 reps, 15 s timeout, `current` config; raw per-run in
+stress-runs.jsonl). All five spot-check verdicts reproduced.
+
 ## Findings
 
 1. **Every verified-region mutant is caught, each by the invariant predicted in
@@ -34,6 +39,26 @@ Raw logs: `<id>-{apply,build,verify}.log`; adjudicated matrix: matrix.md.
    100 ms park cap converts the late-fire bug into bounded extra latency, so
    stress passes; the static catch is the only line of defense that flags it
    outright.
+6. **The whole timer-fire link escapes the stress suite** (supplemental run):
+   with the stress column extended to all mutants, M01–M04 ALL pass 3/3 while
+   every executor-side mutant (M05–M10, drain/FIFO/poll) hangs 3/3. The four
+   timer passes have three distinct masking mechanisms (per-mutant detail in
+   matrix.md): runtime redundancy — the fire path re-derives dueness from
+   `deadline <= now`, so M01's stale clock never delays a fire; lifecycle
+   shadowing — M02's severed cascade re-insert is only reachable by the ≥256 ms
+   backstop timers, which the workload cancels ms after creation; and bounded
+   degradation — M03 only shortens parks (stale cached_min under-estimates),
+   M04's oversleep is clipped by the 100 ms park cap. A falsification probe
+   (../timer-probe/, results in matrix.md) confirms M02 is lethal outside its
+   shadow: an uncancelled 500 ms sleep in a spawned task hangs under M02,
+   while the same sleep as the block_on root future completes 100 ms late —
+   block_on re-polls its root every tick and Sleep::poll re-derives dueness
+   from the clock, a root-only redundancy layer. Each mutant is a genuine
+   invariant violation the verifier rejects, but a test suite ACCEPTS all four:
+   for the entire timer link the static catch is the only signal, which is the
+   strongest form of the M04 observation. (C2 also passes, trivially: the
+   mutation deletes a ghost-log append with an empty exec body, so the binary
+   is behaviorally identical to baseline.)
 
 ## Caveats
 

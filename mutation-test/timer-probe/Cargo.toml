@@ -1,0 +1,13 @@
+[package]
+name = "timer-probe"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "timer-probe"
+path = "src/main.rs"
+
+[dependencies]
+rt = { path = "../../lion", package = "lion" }
+
+[workspace]
