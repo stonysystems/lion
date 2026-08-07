@@ -84,10 +84,21 @@ require_client_tool() {
 
 # client_push <local-file> <remote-abs-path> — stage a binary on the client
 # (machine-local build dirs are not visible across hosts; scp the tool over).
+#
+# scp(1) from OpenSSH 9.0 on transfers over SFTP by default, which dies with
+# "scp: Connection closed" against some peers; -O selects the legacy SCP
+# protocol and transfers fine. It cannot be passed unconditionally: scp before
+# OpenSSH 8.6 has no such flag and aborts on it. So ask this scp's own usage
+# synopsis whether it lists O, rather than matching an error message (whose
+# wording differs between getopt implementations and is translated by glibc's).
+# Anything unrecognized leaves the flag off, i.e. the behavior we had before.
+# ('|| true': scp exits 1 on a usage dump, which under `set -o pipefail`
+# would otherwise mask grep's verdict and always answer "no".)
+if { scp </dev/null 2>&1 || true; } | grep -q '^usage: scp \[-[^]]*O'; then SCP_O=(-O); else SCP_O=(); fi
 client_push() {
   is_local "$CLIENT_HOST" && return 0
   sshpass -p "${SSH_PASS:?}" ssh -o StrictHostKeyChecking=no "${SSH_USER:-$USER}@$CLIENT_HOST"     "mkdir -p $(dirname "$2")"
-  sshpass -p "${SSH_PASS:?}" scp -q -o StrictHostKeyChecking=no "$1"     "${SSH_USER:-$USER}@$CLIENT_HOST:$2"
+  sshpass -p "${SSH_PASS:?}" scp ${SCP_O[@]+"${SCP_O[@]}"} -q -o StrictHostKeyChecking=no "$1"     "${SSH_USER:-$USER}@$CLIENT_HOST:$2"
 }
 
 # client_stage <local-file> — make a file available to the client and echo the

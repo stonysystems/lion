@@ -85,6 +85,21 @@ client_ssh() {
     "${SSH_USER:?set SSH_USER for a remote CLIENT_HOST}@$CLIENT_HOST" "$@"
 }
 
+# scp(1) from OpenSSH 9.0 on transfers over SFTP by default, which dies with
+# "scp: Connection closed" against some peers; -O selects the legacy SCP
+# protocol and transfers fine. It cannot be passed unconditionally: scp before
+# OpenSSH 8.6 has no such flag and aborts on it. So ask this scp's own usage
+# synopsis whether it lists O, rather than matching an error message (whose
+# wording differs between getopt implementations and is translated by glibc's).
+# Anything unrecognized leaves the flag off, i.e. the behavior we had before.
+# ('|| true': scp exits 1 on a usage dump, which under `set -o pipefail`
+# would otherwise mask grep's verdict and always answer "no".)
+if { scp </dev/null 2>&1 || true; } | grep -q '^usage: scp \[-[^]]*O'; then SCP_O=(-O); else SCP_O=(); fi
+client_scp() {
+  sshpass -p "${SSH_PASS:?set SSH_PASS for a remote CLIENT_HOST}" \
+    scp ${SCP_O[@]+"${SCP_O[@]}"} -o StrictHostKeyChecking=no "$@"
+}
+
 # Cross-machine preflight, before the multi-minute build: a remote client shares
 # no filesystem with this host (ours does, via NFS, which is why referring to a
 # server-side path used to work here and nowhere else) and needs its own .NET.
@@ -212,8 +227,7 @@ else
   # the replica addresses). dotnet is resolved on the client, not here.
   echo "   staging client app -> $CLIENT_HOST:$CLIENT_APP"
   client_ssh "rm -rf '$CLIENT_APP' && mkdir -p '$CLIENT_APP'"
-  sshpass -p "$SSH_PASS" scp -qr -o StrictHostKeyChecking=no \
-    bin certs "$SSH_USER@$CLIENT_HOST:$CLIENT_APP/"
+  client_scp -qr bin certs "$SSH_USER@$CLIENT_HOST:$CLIENT_APP/"
   client_ssh "cd '$CLIENT_APP' && export LD_LIBRARY_PATH='$CLIENT_APP/bin' && \
       D=\$(command -v dotnet || echo \$HOME/.dotnet/dotnet) && \
       \"\$D\" bin/IronRSLCounterClient.dll '$SVC' nthreads=$NTHREADS duration=$DURATION" \

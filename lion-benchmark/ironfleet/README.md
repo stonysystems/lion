@@ -47,6 +47,20 @@ leader CPU, ~2.0× (unpinned) / ~5.8–6.1× (1core) over the C# `IoScheduler`.
 the reference dataset from the paper topology (replicas on the EPYC anchor,
 client remote), with its exported `table.md`.
 
+Of the four cells, **C# 1core is by far the most machine-sensitive**, and it is
+the one cell whose mechanism says it should be. There the single core must
+interleave the Dafny Paxos spin loop with the C# `IoScheduler`'s threads, so a
+request's latency is set by how often the OS scheduler hands those I/O threads a
+slice — a function of the kernel's scheduling granularity and of how many threads
+the .NET runtime starts, not of how fast the core is. Faster hardware does not
+move it. We have measured this cell between ~70 and ~330 req/s on machines whose
+other three cells agreed with the reference to well within 2x, which puts the
+pinned Lion/C# ratio anywhere from ~6x (the reference dataset, and what the paper
+reports) to ~35x. The direction — the gap widens sharply under pinning — is
+stable; its magnitude is not, and the reference is the conservative end. The
+client is closed-loop at `NTHREADS` connections, so throughput and average
+latency in that cell move together by construction.
+
 Measurement notes (both runtimes identically, so ratios are unaffected):
 
 - Throughput is total completed requests / `DURATION`, but the client's worker
