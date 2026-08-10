@@ -338,7 +338,7 @@
       records that need squashing.
 - [ ] Paper consistency: the micro figures (a)(d) must be regenerated on the cluster
       with the current code before publishing (the old numbers were inflated by the
-      since-fixed scan bug; see baselines/tcb-reduction/05-final/).
+      since-fixed scan bug; see lion-timer-wheel/SCAN_BUG_DISPOSITION.md).
 
 ---
 

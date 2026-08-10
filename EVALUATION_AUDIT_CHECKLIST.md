@@ -238,7 +238,7 @@
       full-regeneration decision covers it — confirm executed before release).
 - [ ] **Known debt**: micro figures (a)(d) must come from post-fix code — the
       `scan_wheel_min` late-fire bug inflated pre-fix timer numbers by ~25%
-      (baselines/tcb-reduction/05-final/). Confirm the paper's figures are
+      (lion-timer-wheel/SCAN_BUG_DISPOSITION.md). Confirm the paper's figures are
       regenerated from a post-fix PROVENANCE commit, and that `ref-result/`
       batches predating the fix are either regenerated or clearly marked
       pre-fix and unused by the paper.
