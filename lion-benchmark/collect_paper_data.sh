@@ -37,6 +37,10 @@ provenance() { # <outfile> <protocol-desc>
     . "$DIR/real-world/hosts.env" 2>/dev/null || true
     # CLIENT_NAME (hosts.env) keeps raw addresses out of committed provenance.
     echo "client: ${CLIENT_NAME:-${CLIENT_HOST:-unset}}, rtt: $(ping -c 3 -q "${CLIENT_HOST:-127.0.0.1}" 2>/dev/null | awk -F/ '/rtt/{print $5" ms"}')"
+    # The micro filesystem panel and the axum static rows both go through the
+    # blocking pool to the temp directory, and its backing store moves them by
+    # several times over — so it belongs with the rest of the machine's state.
+    echo "tmpdir: ${TMPDIR:-/tmp} ($(stat -f -c %T "${TMPDIR:-/tmp}" 2>/dev/null || echo unknown))"
     echo "protocol: $2"
   } > "$1"
 }

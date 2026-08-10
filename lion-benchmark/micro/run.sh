@@ -47,11 +47,20 @@ FS_BIN="$CARGO_TARGET_DIR/release/micro-fs"
 
 mkdir -p "$OUTDIR"
 
+# The filesystem panel writes into the temp directory through the blocking pool,
+# so what that directory sits on sets the scale of the panel: a ZFS-backed /tmp
+# gives several times less throughput than a tmpfs and flattens the curve. The
+# comparison between runtimes survives either way, but the panel looks broken
+# with no explanation unless the store is stated, so state it.
+FS_TMPDIR="${TMPDIR:-/tmp}"
+FS_TMPTYPE="$(stat -f -c %T "$FS_TMPDIR" 2>/dev/null || echo unknown)"
+
 echo "========================================="
 echo "  Micro Benchmark — Local Run"
 echo "  Duration: ${DURATION}s x ${RUNS} runs"
 echo "  Cores:    $(nproc)"
 echo "  Output:   $OUTDIR/"
+echo "  Temp dir: $FS_TMPDIR ($FS_TMPTYPE) — sets the scale of panel (c)"
 echo "========================================="
 echo ""
 
