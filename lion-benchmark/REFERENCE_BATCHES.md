@@ -14,6 +14,13 @@ exact commit, topology and protocol for each pool.
 Batch 1 keeps the historical directory name `ref-result` because the
 evaluation-audit reports refer to it by that name; treat it as "ref-1".
 
+**The paper's numbers come from batch 2 (`ref-2`).** The name `ref-result` reads
+like the reference and has twice sent a reader to the wrong batch, so it is
+worth stating plainly: `ref-2` is what the tables and figures were regenerated
+from, and `ref-result` is the independent second measurement kept for the
+batch-to-batch comparison below. Where the two disagree — `rumqtt P2P` most of
+all — the disagreement is the point of shipping both, not an error in either.
+
 Covered experiments: `micro/`, `real-world/`, `ironfleet/`,
 `correctness-stress/`.
 

@@ -32,8 +32,8 @@ pub open spec fn waiter_module_spec() -> ModuleSpec<SyncLog> {
 // ENVIRONMENTAL assumption: "a passed waker is delivered a WakeWaker". We state it, mirroring
 // lion-liveness's `wake_delivers_here`, as a SATISFIABLE single-state implication.
 //
-// This REPLACES the old `bounded_wake_assumption`/`wakes_within`, which was 恒假
-// (unsatisfiable): `wakes_within(l,w,n) = forall l2. progress_n(l,l2,n) ==> new_wake_waker_since(l,l2,w)`
+// This REPLACES the old `bounded_wake_assumption`/`wakes_within`, which was identically
+// false (unsatisfiable): `wakes_within(l,w,n) = forall l2. progress_n(l,l2,n) ==> new_wake_waker_since(l,l2,w)`
 // is falsified for EVERY n by the stutter/zero-step self-trace `l2 == l` (a `progress` disjunct),
 // whose empty new-segment `[l.len, l.len)` contains no wake — so `∃n. wakes_within` is false and
 // the whole liveness half discharged over an empty set.
