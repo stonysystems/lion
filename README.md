@@ -66,9 +66,9 @@ build artifacts and experiment output.
 1. **Install the proof toolchain** — `./setup.sh` in the repository root (Rust
    1.91.0 + Verus into `verus-toolchain/`).
 2. **Check the proofs** — `./ci.sh`. This is the claim in the paper's
-   verification sections; it ends in `All checks passed`. Expect 1–2 min on a
-   warm tree and several minutes the first time, when every crate still has to
-   be compiled before it can be verified.
+   verification sections; it ends in `All checks passed`. How long it takes is
+   set by how much still has to be compiled and verified: seconds on a tree that
+   has not changed since the last run, and several minutes the first time.
 3. **Install the experiment toolchain** — `SETUP_IRONFLEET=1
    lion-benchmark/setup.sh`. Drop `SETUP_IRONFLEET=1` to skip the IronFleet
    experiment (it pulls Dafny and .NET).
