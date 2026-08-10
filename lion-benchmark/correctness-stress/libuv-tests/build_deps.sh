@@ -6,6 +6,13 @@ DEPS_DIR="$SCRIPT_DIR/deps"
 
 TAGS=("v1.43.0" "v1.44.2")
 
+# See the matching note in ../libevent-tests/build_deps.sh: CMake 4 rejects the
+# pre-3.5 minimum these releases declare, GCC 14 turned several legacy patterns
+# into errors, and the install layout is pinned to lib/ because the Makefile
+# looks there while some distributions default to lib64/. The caller's CFLAGS
+# come first so setting CFLAGS in the environment is not discarded.
+DEP_CFLAGS="${CFLAGS:-} -Wno-deprecated-declarations -Wno-implicit-function-declaration"
+
 mkdir -p "$DEPS_DIR"
 
 for tag in "${TAGS[@]}"; do
@@ -32,6 +39,9 @@ for tag in "${TAGS[@]}"; do
 
   cmake .. \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_C_FLAGS="$DEP_CFLAGS" \
     -DCMAKE_BUILD_TYPE=Release \
     -DLIBUV_BUILD_TESTS=OFF \
     -DLIBUV_BUILD_BENCH=OFF 2>&1 | tail -5

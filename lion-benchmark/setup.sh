@@ -3,6 +3,8 @@
 #   - cmake    : build dependency for the real-world apps' native deps (e.g.
 #                pingora's zlib-ng / libz-ng-sys),
 #   - wrk      : HTTP load generator for the pingora / axum real-world benchmarks,
+#   - OpenSSL headers : the C differential tests build upstream libevent with
+#                SSL enabled; the openssl binary alone does not suffice,
 #   - sshpass  : non-interactive password SSH to the client host for the
 #                cross-machine real-world runs (credentials live only in your
 #                gitignored real-world/hosts.env),
@@ -40,15 +42,11 @@ record() {  # idempotent: re-running setup.sh must not duplicate entries
   grep -qxF "$line" "$MANIFEST" 2>/dev/null || printf '%s\n' "$line" >> "$MANIFEST"
 }
 
-# ensure_tool <command> <apt-pkg> [dnf-pkg] [pacman-pkg] [brew-pkg]
-# Install the package providing <command> if it is missing, using whatever
-# package manager is available. Best-effort: warns (does not abort) if none works.
-ensure_tool() {
+# install_pkg <label> <apt-pkg> [dnf-pkg] [pacman-pkg] [brew-pkg]
+# Install a package with whatever package manager is available. Best-effort:
+# warns (does not abort) if none works.
+install_pkg() {
   local cmd="$1" apt_pkg="$2" dnf_pkg="${3:-$2}" pac_pkg="${4:-$2}" brew_pkg="${5:-$2}"
-  if command -v "$cmd" >/dev/null 2>&1; then
-    echo "$cmd already installed."
-    return 0
-  fi
   if command -v apt-get >/dev/null 2>&1; then
     if [ "$APT_UPDATED" -eq 0 ]; then sudo apt-get update -qq && APT_UPDATED=1; fi
     echo "Installing $apt_pkg via apt-get ..."
@@ -71,9 +69,39 @@ ensure_tool() {
   fi
 }
 
+# ensure_tool <command> <apt-pkg> [dnf-pkg] [pacman-pkg] [brew-pkg]
+ensure_tool() {
+  local cmd="$1"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    echo "$cmd already installed."
+    return 0
+  fi
+  install_pkg "$@"
+}
+
+# The libevent differential tests (correctness-stress/libevent-tests) build
+# upstream libevent with OpenSSL enabled, so they need the OpenSSL *headers* —
+# not the openssl binary, which nearly every machine already has, so a
+# command-presence check would pass on a host that cannot build them. Missing
+# headers make CMake fail to configure 2.1.11 and 2.1.12 outright, not just the
+# one SSL test, which is a confusing way to learn a package is absent.
+openssl_headers_present() {
+  local cc; cc="$(command -v cc 2>/dev/null || command -v gcc 2>/dev/null || true)"
+  [ -n "$cc" ] || return 1
+  printf '#include <openssl/ssl.h>\n' | "$cc" -E -x c - >/dev/null 2>&1
+}
+ensure_openssl_dev() {
+  if openssl_headers_present; then
+    echo "OpenSSL headers already installed."
+    return 0
+  fi
+  install_pkg "OpenSSL headers" libssl-dev openssl-devel openssl openssl
+}
+
 # --- System tools for building and running the benchmarks ---
 ensure_tool cmake   cmake
 ensure_tool wrk     wrk
+ensure_openssl_dev
 
 # wrk has no package on every distro and apt needs root; when it is still
 # missing, build from source into ~/.local/bin (bench_setup puts that on PATH).

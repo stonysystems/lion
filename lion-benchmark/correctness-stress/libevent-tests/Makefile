@@ -7,11 +7,18 @@ VERSIONS = 2.1.5-beta 2.1.11-stable 2.1.12-stable
 TESTS_CORE = test_237_filter test_984_phantom test_combined
 TESTS_SSL  = test_232_ssl
 
+# 2.1.5-beta needs a weak arc4random_addrandom on glibc 2.36+; see
+# src/compat_arc4random.c. Linked into the test binaries only, so the upstream
+# archives stay exactly as built.
+define compat_src
+$(if $(filter 2.1.5-beta,$(1)),src/compat_arc4random.c)
+endef
+
 # Core tests: link libevent only
 define CORE_RULE
-build/$(1)/$(2): src/$(2).c
+build/$(1)/$(2): src/$(2).c $(call compat_src,$(1))
 	@mkdir -p $$(dir $$@)
-	$$(CC) $$(CFLAGS) -o $$@ $$< \
+	$$(CC) $$(CFLAGS) -o $$@ $$< $(call compat_src,$(1)) \
 		-I deps/$(1)/include \
 		deps/$(1)/lib/libevent.a \
 		deps/$(1)/lib/libevent_core.a \
@@ -23,7 +30,7 @@ define SSL_RULE
 build/$(1)/$(2): src/$(2).c
 	@mkdir -p $$(dir $$@)
 	@if [ -f deps/$(1)/lib/libevent_openssl.a ]; then \
-		$$(CC) $$(CFLAGS) -o $$@ $$< \
+		$$(CC) $$(CFLAGS) -o $$@ $$< $(call compat_src,$(1)) \
 			-I deps/$(1)/include \
 			deps/$(1)/lib/libevent_openssl.a \
 			deps/$(1)/lib/libevent.a \

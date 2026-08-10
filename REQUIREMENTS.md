@@ -74,6 +74,7 @@ Expects `curl` and `unzip` to already be present; writes `verus.config`.
 |---|---|---|
 | `cmake` | native dependencies of the real-world apps (pingora's zlib-ng) | system package manager |
 | `wrk` | HTTP load generator (pingora, axum) | system package; if none, built from source into `~/.local/bin` |
+| OpenSSL headers (`libssl-dev` / `openssl-devel`) | building upstream libevent for the C differential tests, which enable SSL — the `openssl` binary alone is not enough | system package manager |
 | `sshpass` | non-interactive SSH to the client host | system package manager |
 | `python3`, `python3-venv` | plotting (aborts if `python3` is missing) | system package manager |
 | `matplotlib`, `numpy` | plotting | `lion-benchmark/micro/.venv`, version-bounded by `lion-benchmark/plotting-requirements.txt` |

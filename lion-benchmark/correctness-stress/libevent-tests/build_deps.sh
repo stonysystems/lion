@@ -6,6 +6,33 @@ DEPS_DIR="$SCRIPT_DIR/deps"
 
 TAGS=("release-2.1.5-beta" "release-2.1.11-stable" "release-2.1.12-stable")
 
+# These libevent releases predate the current C toolchain by a decade, so the
+# build needs three concessions. They are collected here rather than scattered
+# through the invocations below, and the caller's CFLAGS come first so setting
+# CFLAGS in the environment still works — hardcoding -DCMAKE_C_FLAGS silently
+# discarded it.
+#   * CMake 4 refuses a cmake_minimum_required below 3.5; the version-minimum
+#     override is the upstream escape hatch. Older CMake ignores the variable.
+#   * GCC 14 promoted implicit function declarations from a warning to an error.
+#     2.1.5-beta calls arc4random_addrandom(), which a current glibc declares
+#     nowhere, so on GCC 14+ it fails to compile at all; suppressing the
+#     diagnostic gets it to the link error that src/compat_arc4random.c answers.
+#   * The install layout is pinned to lib/ so the Makefiles find the archives on
+#     distributions whose default is lib64/.
+DEP_CFLAGS="${CFLAGS:-} -Wno-deprecated-declarations -Wno-implicit-function-declaration"
+
+# 2.1.11 and 2.1.12 are configured with OpenSSL enabled, so without the headers
+# CMake fails to configure the whole library rather than just the SSL test — a
+# 40-line find_package trace that does not name the missing package. Say it here
+# instead. (2.1.5-beta is built with SSL off regardless; see below.)
+if ! printf '#include <openssl/ssl.h>\n' | "${CC:-cc}" -E -x c - >/dev/null 2>&1; then
+  echo "ERROR: the OpenSSL development headers are missing." >&2
+  echo "  Debian/Ubuntu: sudo apt-get install libssl-dev" >&2
+  echo "  Fedora/RHEL:   sudo dnf install openssl-devel" >&2
+  echo "  (../setup.sh installs this for you.)" >&2
+  exit 1
+fi
+
 mkdir -p "$DEPS_DIR"
 
 for tag in "${TAGS[@]}"; do
@@ -41,7 +68,9 @@ for tag in "${TAGS[@]}"; do
     mkdir -p _build && cd _build
     cmake .. \
       -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-      -DCMAKE_C_FLAGS="-Wno-deprecated-declarations" \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DCMAKE_C_FLAGS="$DEP_CFLAGS" \
       -DEVENT__DISABLE_OPENSSL="$DISABLE_SSL" \
       -DEVENT__DISABLE_SAMPLES=ON \
       -DEVENT__DISABLE_TESTS=ON \
@@ -57,8 +86,9 @@ for tag in "${TAGS[@]}"; do
     fi
     SSL_FLAG=""
     [ "$DISABLE_SSL" = "ON" ] && SSL_FLAG="--disable-openssl"
-    CFLAGS="-Wno-deprecated-declarations -O2" \
+    CFLAGS="$DEP_CFLAGS -O2" \
     ./configure \
+      --libdir="$INSTALL_DIR/lib" \
       --prefix="$INSTALL_DIR" \
       --enable-static --disable-shared \
       --disable-samples --disable-libevent-regress \
