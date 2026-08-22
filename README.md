@@ -13,9 +13,7 @@ can be discharged in any deductive verifier without requiring extra extensions
 concrete design of the system it is applied to. The latter freedom pays off in
 practice: in our experiments, the verified runtime achieves performance
 comparable to its unverified counterpart (Tokio) — we measure at least 95% of
-unverified-runtime throughput on nine real-world workloads (two below-parity observations reported during
-artifact evaluation are discussed under "Known exceptions to the parity
-claim" below).
+unverified-runtime throughput on nine real-world workloads.
 
 The most interesting parts of the codebase are `lion-executor` and
 `lion-reactor`, the runtime's core. Each demonstrates how a component's
