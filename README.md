@@ -12,8 +12,10 @@ can be discharged in any deductive verifier without requiring extra extensions
 (such as native temporal-logic operators), and it imposes no constraints on the
 concrete design of the system it is applied to. The latter freedom pays off in
 practice: in our experiments, the verified runtime achieves performance
-comparable to its unverified counterpart (Tokio), matching its throughput
-within ±5%.
+comparable to its unverified counterpart (Tokio) — we measure at least 95% of
+unverified-runtime throughput on nine real-world workloads (two below-parity observations reported during
+artifact evaluation are discussed under "Known exceptions to the parity
+claim" below).
 
 The most interesting parts of the codebase are `lion-executor` and
 `lion-reactor`, the runtime's core. Each demonstrates how a component's
@@ -173,6 +175,32 @@ dataset in the camera-ready. If your run reproduces near-parity but flips
 such an ordering, you are seeing expected behavior, not a reproduction
 failure — the machine-independent claims are the relative conclusions
 listed above.
+
+**Known exceptions to the parity claim.** We collected the shipped results
+on two machine configurations of our own; during artifact evaluation, three
+reviewers additionally ran the benchmarks on their own hardware, and two of
+them separately reported cells that fall visibly below parity. One
+reviewer measured Lion at 82% of Tokio's throughput on a loopback
+deployment of the rumqtt workload (a deployment the planned experiment
+matrix does not cover — rumqtt runs cross-machine only). Another measured
+72.3% of Tokio's on the micro-benchmark TCP suite at 500 connections — an
+outlier for that cell, which measures around 90% of Tokio's on every other
+configuration, ours and the other reviewers' alike. We read these as evidence
+that Tokio's deep optimization can still pull ahead in configurations and
+scenarios our coverage has missed: Lion demonstrates that deep optimization
+and formally verified correctness are compatible, but in its current state
+it does not yet match Tokio everywhere.
+
+### Camera-ready additions, outside the artifact-evaluation scope
+
+Two additional experiment sets were added during camera-ready. They live on
+their own branches, are not part of `main`, and are not covered by the
+artifact-evaluation instructions above:
+
+- **`work-stealing-bench`** — benchmarks demonstrating workloads where
+  Tokio's work-stealing scheduling is advantageous.
+- **`stress-localset-latest-tokio`** — extends the stress testing to hang a
+  current Tokio release, 1.52.3.
 
 ## Verifying the proofs
 
