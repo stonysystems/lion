@@ -1,5 +1,7 @@
 # Lion
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22061599.svg)](https://doi.org/10.5281/zenodo.22061599)
+
 <p align="center">
   <img src="assets/fig/intro.svg" alt="Lion verification methodology: Runtime Core and Utilities are abstracted by the L2S (logical-log-based specification) abstraction, which yields per-module Contracts that compose with environmental assumptions into the end-to-end Liveness Theorem." width="440">
 </p>
@@ -36,6 +38,14 @@ section "compare conclusions, not absolute numbers" below says what to expect.
 A component-by-component map of the repository — what each crate is and
 where it appears in the paper — is in
 [`REPOSITORY_MAP.md`](REPOSITORY_MAP.md).
+
+**Artifact availability.** The artifact-evaluation version of this
+repository (tag `sosp26-ae`, commit `79a4b20`) is permanently archived on
+Zenodo: DOI [10.5281/zenodo.22061599](https://doi.org/10.5281/zenodo.22061599).
+The concept DOI
+[10.5281/zenodo.22061598](https://doi.org/10.5281/zenodo.22061598) always
+resolves to the latest archived version. This GitHub repository is the
+development version.
 
 ## Running the experiments
 
