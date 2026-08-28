@@ -1,5 +1,14 @@
 # Lion
 
+<p align="center">
+  <a href="https://doi.org/10.5281/zenodo.22061599"><img src="assets/badges/acm_available_1.1.png" alt="ACM Artifacts Available" width="96"></a>
+  <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_functional_1.1.png" alt="ACM Artifacts Evaluated – Functional" width="96"></a>
+  <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_reproduced_1.1.png" alt="ACM Results Reproduced" width="96"></a>
+</p>
+
+**SOSP '26 artifact** — awarded the ACM *Available*, *Functional*, and
+*Reproduced* badges by the SOSP '26 Artifact Evaluation Committee.
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22061599.svg)](https://doi.org/10.5281/zenodo.22061599)
 
 <p align="center">
@@ -33,7 +42,7 @@ extended technical report is available in
 [`lion-liveness/doc/`](lion-liveness/doc/) (prebuilt `main.pdf`; rebuild with
 `build.sh`). Where the artifact and the submitted manuscript differ — the
 evaluation numbers were re-collected on new machines for the camera-ready — the
-section "compare conclusions, not absolute numbers" below says what to expect.
+paragraph "Known exceptions to the parity claim" below says what to expect.
 
 A component-by-component map of the repository — what each crate is and
 where it appears in the paper — is in
@@ -45,7 +54,8 @@ Zenodo: DOI [10.5281/zenodo.22061599](https://doi.org/10.5281/zenodo.22061599).
 The concept DOI
 [10.5281/zenodo.22061598](https://doi.org/10.5281/zenodo.22061598) always
 resolves to the latest archived version. This GitHub repository is the
-development version.
+development version. The SOSP '26 Artifact Evaluation Committee awarded this
+artifact the ACM *Available*, *Functional*, and *Reproduced* badges.
 
 ## Running the experiments
 
@@ -137,53 +147,6 @@ development-history identifiers that predate this repository's initial
 commit; they name the exact development state each batch was collected
 from.
 
-### Artifact evaluation: compare conclusions, not absolute numbers
-
-The performance numbers in the pre-camera-ready version of the paper were
-collected on different machines than the shipped reference dataset, so the
-paper's absolute values and `ref-result/` disagree — and your machine will
-produce yet another set of absolute values. This is expected. What the
-artifact supports, and what we ask evaluators to check, are the **relative
-conclusions**, which reproduce across every machine and batch we have run:
-
-- **Micro benchmarks** (`micro/`): Lion's single-thread throughput is in the
-  same range as Tokio's on every primitive — ahead on some cells, behind on
-  others, with no consistent loser. In multi-thread scaling, Lion and
-  Tokio-Partition scale with thread count while stock Tokio's work-stealing
-  runtime *degrades* as threads are added (the headline scheduling result).
-- **Real-world applications** (`real-world/`): Lion is a drop-in replacement
-  for Tokio at parity performance — throughput stays close to Tokio's on
-  every workload, and on the runtime-bound cells (axum localhost) Lion is
-  the faster runtime. Cells pinned by an external ceiling (the
-  link-saturated axum cross-machine rows; the pingora 10 KB payload's
-  intrinsic body-handling ceiling) show exact parity by construction.
-- **Correctness under stress** (`correctness-stress/`): every tested
-  bug-carrying release of Tokio, libevent, and libuv hangs deterministically
-  on its known liveness bug under the stress workload; Lion passes every
-  configuration, every time.
-- **IronFleet integration** (`ironfleet/`): replacing the verified Paxos
-  node's threaded C# I/O with Lion yields substantially higher throughput
-  (unpinned, and by a wide margin when pinned to a single core) at a
-  fraction of the CPU — Lion outperforms the threaded C# I/O layer in
-  every regime.
-
-If a relative conclusion above does not hold on your hardware, that is a
-finding we want to hear about; absolute-value differences from the paper or
-from `ref-result/` are not.
-
-**On "who is slightly ahead" statements.** The point these experiments
-establish is that Lion and Tokio perform comparably; within that parity,
-*which* runtime comes out a few percent ahead on any particular cell
-depends on the machine and its state, and genuinely flips between hosts
-and collection batches. A few fine-grained statements of this kind in the
-pre-camera-ready evaluation text (e.g., the ordering at specific timer
-concurrencies, Monoio's relative positioning, the rumqtt Fanin direction)
-encode one earlier batch's outcome and will be aligned with the reference
-dataset in the camera-ready. If your run reproduces near-parity but flips
-such an ordering, you are seeing expected behavior, not a reproduction
-failure — the machine-independent claims are the relative conclusions
-listed above.
-
 **Known exceptions to the parity claim.** We collected the shipped results
 on two machine configurations of our own; during artifact evaluation, three
 reviewers additionally ran the benchmarks on their own hardware, and two of
@@ -198,17 +161,6 @@ that Tokio's deep optimization can still pull ahead in configurations and
 scenarios our coverage has missed: Lion demonstrates that deep optimization
 and formally verified correctness are compatible, but in its current state
 it does not yet match Tokio everywhere.
-
-### Camera-ready additions, outside the artifact-evaluation scope
-
-Two additional experiment sets were added during camera-ready. They live on
-their own branches, are not part of `main`, and are not covered by the
-artifact-evaluation instructions above:
-
-- **`work-stealing-bench`** — benchmarks demonstrating workloads where
-  Tokio's work-stealing scheduling is advantageous.
-- **`stress-localset-latest-tokio`** — extends the stress testing to hang a
-  current Tokio release, 1.52.3.
 
 ## Verifying the proofs
 
