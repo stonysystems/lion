@@ -6,9 +6,6 @@
   <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_reproduced_1.1.png" alt="ACM Results Reproduced" width="96"></a>
 </p>
 
-**SOSP '26 artifact** — awarded the ACM *Available*, *Functional*, and
-*Reproduced* badges by the SOSP '26 Artifact Evaluation Committee.
-
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22061599.svg)](https://doi.org/10.5281/zenodo.22061599)
 
 <p align="center">
@@ -47,15 +44,6 @@ paragraph "Known exceptions to the parity claim" below says what to expect.
 A component-by-component map of the repository — what each crate is and
 where it appears in the paper — is in
 [`REPOSITORY_MAP.md`](REPOSITORY_MAP.md).
-
-**Artifact availability.** The artifact-evaluation version of this
-repository (tag `sosp26-ae`, commit `79a4b20`) is permanently archived on
-Zenodo: DOI [10.5281/zenodo.22061599](https://doi.org/10.5281/zenodo.22061599).
-The concept DOI
-[10.5281/zenodo.22061598](https://doi.org/10.5281/zenodo.22061598) always
-resolves to the latest archived version. This GitHub repository is the
-development version. The SOSP '26 Artifact Evaluation Committee awarded this
-artifact the ACM *Available*, *Functional*, and *Reproduced* badges.
 
 ## Running the experiments
 
