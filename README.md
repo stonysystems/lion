@@ -1,12 +1,10 @@
 # Lion
 
-<p align="center">
-  <a href="https://doi.org/10.5281/zenodo.22061599"><img src="assets/badges/acm_available_1.1.png" alt="ACM Artifacts Available" width="96"></a>
-  <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_functional_1.1.png" alt="ACM Artifacts Evaluated – Functional" width="96"></a>
-  <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_reproduced_1.1.png" alt="ACM Results Reproduced" width="96"></a>
-</p>
-
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22061599.svg)](https://doi.org/10.5281/zenodo.22061599)
+<a href="https://doi.org/10.5281/zenodo.22061599"><img src="assets/badges/acm_available_1.1.png" alt="ACM Artifacts Available" height="28"></a>
+<a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_functional_1.1.png" alt="ACM Artifacts Evaluated – Functional" height="28"></a>
+<a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_reproduced_1.1.png" alt="ACM Results Reproduced" height="28"></a>
+&nbsp;
+<a href="https://doi.org/10.5281/zenodo.22061599"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22061599.svg" alt="DOI" height="20"></a>
 
 <p align="center">
   <img src="assets/fig/intro.svg" alt="Lion verification methodology: Runtime Core and Utilities are abstracted by the L2S (logical-log-based specification) abstraction, which yields per-module Contracts that compose with environmental assumptions into the end-to-end Liveness Theorem." width="440">
