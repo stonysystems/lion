@@ -4,6 +4,7 @@
 <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_functional_1.1.png" alt="ACM Artifacts Evaluated – Functional" height="28"></a>
 <a href="https://sysartifacts.github.io/sosp2026/badges"><img src="assets/badges/acm_reproduced_1.1.png" alt="ACM Results Reproduced" height="28"></a>
 &nbsp;
+<a href="https://sigops.org/s/conferences/sosp/2026/"><img src="https://img.shields.io/badge/SOSP-%2726-1f6feb" alt="SOSP '26" height="20"></a>
 <a href="https://doi.org/10.5281/zenodo.22061599"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22061599.svg" alt="DOI" height="20"></a>
 
 <p align="center">
