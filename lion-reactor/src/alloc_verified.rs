@@ -8,10 +8,13 @@ verus! {
 impl Reactor {
   // NOTE: the reactor does NOT recycle resource ids. `next_resource_id` is strictly
   // monotonic and the free-list reuse path is disabled ([RID-REUSE DISABLED] markers),
-  // so each rid is handed out at most once. The ResourceSlab is indexed by rid, so its
-  // window grows with the max live rid ⟹ worst-case UNBOUNDED memory for long-running
-  // reactors. This is an accepted interim regression; bounded-memory recycling will be
-  // reintroduced via generational ids (index, gen) that keep handles logically unique.
+  // so each rid is handed out at most once — the freshness facts below rest on that.
+  // Memory does not grow with the rids ever allocated: every rid-keyed container is a
+  // map holding LIVE entries only (the ResourceSlab's `lion_slab::Slab` and the timer
+  // wheel's `deadlines`/`positions` are std `HashMap`s; the trusted `readiness` table
+  // drops a rid's entry on deregistration), so memory is proportional to the live
+  // resources. The id space is u64 per reactor: reaching `u64::MAX` returns
+  // `resource_id_overflow` below rather than wrapping.
   #[verifier::rlimit(50)]
   pub fn alloc_resource_id(&mut self) -> (result: IoResult<ResourceId>)
     requires

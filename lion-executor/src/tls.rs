@@ -1,6 +1,7 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::sync::Arc;
 use crate::collections::VecDeque;
 use crate::types::TaskId;
@@ -11,7 +12,12 @@ thread_local! {
   static TASK_READY_QUEUE: RefCell<VecDeque<TaskId>> = RefCell::new(VecDeque::new());
   static DEFER_QUEUE: RefCell<VecDeque<TaskId>> = RefCell::new(VecDeque::new());
   static CURRENT_TASK: Cell<Option<TaskId>> = const { Cell::new(None) };
-  static TASK_NOTIFIED: RefCell<Vec<bool>> = RefCell::new(Vec::new());
+  // Ids of tasks that are queued (woken) but not yet polled; dedups wakes.
+  // Holds queued tasks only: `clear_notified` (at the start of every poll,
+  // including the Invalid poll of a finished task's stale wake) removes the id.
+  // Task ids are never reused, so a table indexed by id would grow with every
+  // task ever spawned.
+  static TASK_NOTIFIED: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
   static BLOCK_ON_YIELDED: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -31,27 +37,12 @@ fn set_notified(task_id: TaskId) -> bool {
   if task_id.0 == u64::MAX {
     return true;
   }
-  TASK_NOTIFIED.with(|n| {
-    let mut v = n.borrow_mut();
-    let idx = task_id.0 as usize;
-    if idx >= v.len() {
-      v.resize(idx + 1, false);
-    }
-    if v[idx] {
-      return false;
-    }
-    v[idx] = true;
-    true
-  })
+  TASK_NOTIFIED.with(|n| n.borrow_mut().insert(task_id.0))
 }
 
 pub(crate) fn clear_notified(task_id: TaskId) {
   TASK_NOTIFIED.with(|n| {
-    let mut v = n.borrow_mut();
-    let idx = task_id.0 as usize;
-    if idx < v.len() {
-      v[idx] = false;
-    }
+    n.borrow_mut().remove(&task_id.0);
   });
 }
 

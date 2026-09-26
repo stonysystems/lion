@@ -8,15 +8,21 @@ verified. Regenerate the raw list with:
 grep -rn "external_body" lion-reactor/src lion-executor/src lion-timer-wheel/src lion-slab/src lion-utility/src
 ```
 
-**Count**: 126 trusted `external_body` items — lion-reactor 57, lion-executor 54,
-lion-timer-wheel 11, lion-slab 4, lion-utility 0. By trust kind: 30 `semantic`,
+**Count**: 118 trusted `external_body` items — lion-reactor 57, lion-executor 54,
+lion-timer-wheel 7, lion-slab 0, lion-utility 0. By trust kind: 22 `semantic`,
 26 `ghost-log`, 45 `raw`, 25 `view` (definitions in §3). The ghost-log families
-are macro-generated, so a raw grep undercounts (109 attribute lines for 126
+are macro-generated, so a raw grep undercounts (101 attribute lines for 118
 items); the §3 tables plus the two macro-invocation lists are the authoritative
-inventory. Beyond these: one `#[verifier::external]` item (`lion-slab
-Slab::get_mut` — safe bounds-checked code, external only because Verus cannot
-express `&mut` returns), and the pinned Verus toolchain (`setup.sh`,
-`verus.config`) with its Z3 solver.
+inventory. Beyond these: two `#[verifier::external]` items (`lion-slab
+Slab::get_mut` — a std `HashMap::get_mut`, external only because Verus cannot
+express `&mut` returns — and `Slab::values`, a std `HashMap::values` iterator
+used only by unverified code), and the pinned Verus toolchain (`setup.sh`,
+`verus.config`) with its Z3 solver. That toolchain includes vstd's model of std
+`HashMap` (`vstd/std_specs/hash.rs`: `assume_specification`s for
+`new`/`insert`/`get`/`remove`/`contains_key`/`is_empty`, plus `admit()`ed
+axioms that `u64` obeys the key model and `RandomState` builds valid hashers),
+which the two id-keyed maps — `lion-slab::Slab` and the timer wheel's `VecMap`
+— rest on in place of their former eight trusted slot leaves.
 
 **Model↔implementation correspondence.** Event vocabulary and invariant
 definitions live in shared spec crates (`lion-framework-spec`,
@@ -62,23 +68,34 @@ theorems:
 5. **Trusted data-structure models** — vstd-style ensures on `VecDeque`
    (FIFO-as-sequence semantics that the local-queue liveness derivation rides on),
    the slot-mutation leaves of the timer wheel (including their exact
-   `level_counts` deltas), and the four lion-slab leaves.
+   `level_counts` deltas), and vstd's own std `HashMap` specification, which
+   the id-keyed maps (`lion-slab::Slab`, the wheel's `VecMap`) call directly.
 
 ---
 
 ## 2. Known modeling limitations
 
 - **Ids are monotone counters** (internal data management): resource ids and task ids are allocated by
-  ever-increasing counters and never reused — the id-indexed structures
-  (ResourceSlab, task_slab, TID ledger) therefore grow with the total ids ever
-  allocated. The no-reuse liveness theorem is faithful to exactly this
-  implementation. Planned: generational ids `(index, gen)` to support id reuse
-  and reclamation. In lion-reactor the disabled reuse branches (`free_rids.push`/
+  ever-increasing u64 counters and never reused, and the no-reuse liveness
+  theorem is faithful to exactly this implementation. Memory does NOT grow
+  with the ids ever allocated: every container keyed by id holds live entries
+  only — the ResourceSlab and the task slab (`lion-slab::Slab`) and the timer
+  wheel's `deadlines`/`positions` (`VecMap`) are std `HashMap`s with unchanged
+  `Map` views and contracts, and the trusted TLS tables are a
+  `HashMap<u64, u8>` of io readiness flags (an entry lives from
+  `init_readiness` to deregistration) and a `HashSet<u64>` of notified task ids
+  (an entry lives from wake to the next poll of that id). The one remaining
+  id-proportional structure is the executor's TID ledger, a history set by
+  design (1 bit per task ever spawned, 125 KB per million tasks).
+  `lion-utility/tests/bounded_memory.rs` churns ~200k task ids and ~600k
+  resource ids and asserts resident memory stays flat after warm-up. The id
+  space is u64 per reactor/executor; resource-id exhaustion returns
+  `resource_id_overflow`. In lion-reactor the disabled reuse branches (`free_rids.push`/
   `pop`) are commented out behind `[RID-REUSE DISABLED]` markers while the
   `free_rids_wf` invariant plumbing is retained live (it appears in
   `alloc_resource_id`'s contract and its preservation lemmas are still called);
   the invariant is maintained over a provably-empty free list, so it constrains
-  nothing today and is ready for the generational-id restoration.
+  nothing today and is ready if id reuse (generational ids) is ever restored.
 - **The top theorem is a bounded, filtered (□env ⇒ ◇goal) statement** (theorem statement scope): it quantifies
   over runs that maintain the environment assumptions at every state, and does not
   itself assert such runs exist from every qualifying state. Non-vacuity is
@@ -175,8 +192,8 @@ file:line is the `reactor_log_action!` / `executor_log_action!` invocation site 
 the single external_body attribute lives in the macro body (reactor ext.rs:91,
 executor ext.rs:32), whose ensures/frame clauses are shared verbatim by every
 expansion, so auditing them all reduces to auditing the macro body once. Because
-of this, `grep -rn "verifier::external_body"` is auxiliary only (109 attribute
-lines stand for the 126 items); the AUTHORITATIVE inventory is these tables plus
+of this, `grep -rn "verifier::external_body"` is auxiliary only (101 attribute
+lines stand for the 118 items); the AUTHORITATIVE inventory is these tables plus
 the two macro-invocation lists. The "trusted postcondition" column summarizes
 what the `ensures` clause claims — this is exactly what verification trusts
 without checking. "no ensures" means the item is trusted only not to break
@@ -193,7 +210,7 @@ Each item carries one of four categories:
 - **raw** — zero or near-zero ensures: a claim-free primitive effect;
 - **view** — opaque type wrapper or uninterpreted spec-view declaration.
 
-Tally: 126 items = 30 semantic + 26 ghost-log + 45 raw + 25 view.
+Tally: 118 items = 22 semantic + 26 ghost-log + 45 raw + 25 view.
 
 A pedantic satisfiability note on the exact-effect (`semantic`) rows: ensures of
 the form `count == old(count) + 1` carry no overflow-side `requires`, so at the
@@ -258,8 +275,8 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/types/time.rs:82 | `Instant::elapsed` | raw | no ensures (opaque effect) — saturating sub against now() |
 | src/types/time.rs:92 | `Instant::add` | raw | no ensures (opaque effect) — saturating add |
 | src/types/time.rs:101 | `Instant::sub` | raw | no ensures (opaque effect) — saturating sub |
-| src/reactor/park.rs:22 | `mark_io_readable` | raw | no ensures (opaque effect) — sets TLS readiness bit |
-| src/reactor/park.rs:27 | `mark_io_writable` | raw | no ensures (opaque effect) — sets TLS readiness bit |
+| src/reactor/park.rs:22 | `mark_io_readable` | raw | no ensures (opaque effect) — sets the rid's TLS readiness flag (no-op if the rid has no entry) |
+| src/reactor/park.rs:27 | `mark_io_writable` | raw | no ensures (opaque effect) — sets the rid's TLS readiness flag (no-op if the rid has no entry) |
 | src/types/poll.rs:5 | `struct Poll` | view | opaque wrapper of `mio::Poll` |
 | src/types/poll.rs:13 | `Poll::view` | view | uninterpreted spec view (`int`) |
 
@@ -322,7 +339,7 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/executor/poll_task.rs:11 | `clear_task_notified` | raw | no ensures (opaque effect) — clears TLS notified flag |
 | src/executor/enter.rs:8 | `Executor::enter` | raw | no ensures (opaque effect) — installs reactor TLS context |
 
-### lion-timer-wheel (11 items)
+### lion-timer-wheel (7 items)
 
 | file:line | fn name | category | trusted postcondition |
 |---|---|---|---|
@@ -333,28 +350,27 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/wheel.rs:3058 | `TimerWheel::slot_pop` | semantic | slot loses exactly its last element (`drop_last`); all other state unchanged; `level_counts[level]` exactly −1 |
 | src/wheel.rs:3087 | `TimerWheel::slot_drain` | semantic | returns exactly the old slot contents; slot becomes empty; all other state unchanged; `level_counts[level]` exactly −len |
 | src/helpers.rs:5 | `wrapping_sub_u64` | semantic | if `a >= b` then result equals `a - b` (wrapping case unconstrained) |
-| src/vec_map.rs:166 | `VecMap::grow_front` | semantic | offset becomes `key`; None slots prepended; existing slots shifted intact; `count` unchanged |
-| src/vec_map.rs:188 | `VecMap::ensure_slot` | semantic | index `rel` in bounds; existing slots preserved; new slots None; `count` unchanged |
-| src/vec_map.rs:212 | `VecMap::set_slot` | semantic | `inner@` becomes `old.update(rel, Some(value))`; `count` +1 exactly iff slot was None (the `count_wf` coupling behind the now-VERIFIED O(1) `is_empty`) |
-| src/vec_map.rs:231 | `VecMap::take_at` | semantic | returns old slot value; slot becomes None; all else unchanged; `count` −1 exactly iff slot was Some |
 
 (`scan_wheel_min` and `VecMap::is_empty` are verified functions, not trusted
 leaves: the min-scan is proven against the `level_band` invariant and the
-per-level occupancy counters; `is_empty` is proven via the `count_wf` coupling.)
+per-level occupancy counters; `is_empty` is proven from vstd's `HashMap::is_empty`
+spec. `VecMap` — the wheel's `deadlines`/`positions` — is a std `HashMap` whose
+every operation is a direct std call specified by vstd, so its four former slot
+leaves are gone; see the Count paragraph for the vstd model it now rests on.)
 
-### lion-slab (4 items)
+### lion-slab (0 items)
 
-| file:line | fn name | category | trusted postcondition |
-|---|---|---|---|
-| src/slab.rs:56 | `Slab::grow_front` | semantic | offset becomes `key`; None slots prepended; existing slots shifted intact |
-| src/slab.rs:76 | `Slab::ensure_slot` | semantic | index `rel` in bounds; existing slots preserved; appended slots None |
-| src/slab.rs:95 | `Slab::set_slot` | semantic | `inner@` becomes `old.update(rel, Some(value))` |
-| src/slab.rs:229 | `Slab::take_at` | semantic | returns old slot value; slot becomes None; all else unchanged |
+No `external_body` attributes. `Slab` is a std `HashMap<u64, V>`: `new`,
+`insert`, `get` and `remove` are verified against vstd's `HashMap` specification
+(see the Count paragraph), with the same `Map<nat, V::V>` view and contracts the
+former vector window had.
 
-Also note `Slab::get_mut` (`src/slab.rs:213`) — `#[verifier::external]`, but now
-SAFE code: a bounds-checked body mirroring the verified `get` (no unsafe anywhere
-in the crate). It stays external only because Verus cannot express `&mut` returns,
-so its behavior is still invisible to verification.
+Also note two `#[verifier::external]` items: `Slab::get_mut` (`src/slab.rs:102`),
+a std `HashMap::get_mut` mirroring the verified `get`, external only because
+Verus cannot express `&mut` returns; and `Slab::values` (`src/slab.rs:111`), a
+std `HashMap::values` iterator whose only caller is unverified
+(`ResourceSlab::is_empty_timers`). No unsafe anywhere in the crate; their
+behavior is invisible to verification, and no verified code calls them.
 
 ### lion-utility (0 items)
 
@@ -382,14 +398,14 @@ local-queue liveness derivation rides on. TID freshness and drain
 append/injected facts are verified in the wrapping layer (ledger + filters),
 not trusted.
 
-**lion-timer-wheel (11).** A trusted framing layer over `Vec` slot mutations —
+**lion-timer-wheel (7).** A trusted framing layer over `Vec` slot mutations —
 each ensures pins the exact single-slot effect plus the exact `level_counts`
 delta. The min-scan and emptiness checks on top are verified against these
-leaves.
+leaves. The deadline/position maps are std `HashMap`s specified by vstd.
 
-**lion-slab (4).** Four private leaf operations with exact effect-on-view specs; all
-public Slab API on top is verified. Plus the `#[verifier::external]` `get_mut` noted
-above.
+**lion-slab (0).** No trusted leaves: all public Slab API is verified directly
+against vstd's std `HashMap` specification. Plus the two `#[verifier::external]`
+items (`get_mut`, `values`) noted above.
 
 ### lion-utility (glue layer)
 

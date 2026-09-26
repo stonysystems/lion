@@ -52,7 +52,7 @@ where it appears in the paper — is in
 |---|---|
 | Time | ~4 h for the full `collect_paper_data.sh`, of which ~3.5 h is measurement time fixed by the protocol (30 s × 10 runs per cell) — a faster machine shortens the builds, not the measurement |
 | Disk | ~10 GB: a fresh clone is 93 MB, the toolchains `setup.sh` installs ~5 GB, build artifacts ~4.8 GB |
-| Memory | **≥ 16 GB.** Every step but one peaks below 2 GB; the micro benchmark's timer cells reach ~10 GB in a single process |
+| Memory | **≥ 16 GB** as recorded for the paper runs, when the micro benchmark's timer cells reached ~10 GB in a single process. The id-keyed containers now hold live entries only and those cells stay at ~11 MiB peak RSS (REQUIREMENTS.md §4); every other recorded step peaks below 2 GB |
 | Cores | no minimum; the cross-machine rows need a second host, and the paper's link is 1 GbE |
 
 - [`REQUIREMENTS.md`](REQUIREMENTS.md) — the machine the reference dataset was
@@ -177,10 +177,11 @@ without the Verus driver; it does not affect verification or the runtime crates.
 Every claim above is machine-checked *modulo* an explicitly trusted base, inventoried
 per-item in [`TCB_and_limitations.md`](TCB_and_limitations.md):
 
-- **`external_body` boundary functions** (126 across the six verified crates — OS/syscall
+- **`external_body` boundary functions** (118 across the six verified crates — OS/syscall
   wrappers, waker vtables, low-level slot operations) whose postconditions are trusted,
-  not verified — plus one fully-unchecked `#[verifier::external]` item;
-- **the Verus toolchain and its SMT solver** (Verus pinned by `setup.sh`, bundling Z3 4.12.5; see `verus.config`);
+  not verified — plus two fully-unchecked `#[verifier::external]` items;
+- **the Verus toolchain and its SMT solver** (Verus pinned by `setup.sh`, bundling Z3 4.12.5; see `verus.config`),
+  including vstd's specification of std `HashMap`, which the id-keyed maps call directly;
 - **model↔implementation correspondence**: the event vocabulary and invariant definitions
   are shared crates (`lion-framework-spec`, `lion-executor-spec`, `lion-reactor-spec`,
   `lion-utility-spec`) consumed by both the liveness proof and the impl-verified crates,

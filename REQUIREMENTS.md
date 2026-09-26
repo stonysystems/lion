@@ -41,7 +41,7 @@ conclusions, not absolute numbers" for what is expected to reproduce.
 | | |
 |---|---|
 | OS | Linux x86_64 or macOS arm64/x86_64 (`setup.sh` aborts on anything else). The experiments were only ever run on Linux. |
-| Memory | **≥ 16 GB.** Every step but one peaks below 2 GB; the micro benchmark's timer panels reach ~10 GB in a single process — see §4. |
+| Memory | **≥ 16 GB** as recorded for the paper runs, when the micro benchmark's timer panels reached ~10 GB in a single process; they no longer grow — see §4. Every other recorded step peaks below 2 GB. |
 | Disk | ~10 GB all told — see §4. |
 | Cores | No minimum. Measurement wall time is set by the protocol, not by core count (§4), so more cores buy build time only. The micro benchmark's multi-thread panels use at most 4 runtime threads. |
 | Network | Only for the cross-machine rows: a second host reachable over SSH, on a link whose capacity you know. The paper's rows are 1 GbE; a faster link moves the axum cross-machine ceiling and those rows will no longer be link-bound. |
@@ -167,14 +167,21 @@ increase in system-wide memory in use, on a 6-core/12-thread desktop:
 | `real-world` — axum | 457 MB | 496 MB |
 | `ironfleet` | 432 MB | 89 MB |
 
-**The micro benchmark's timer panels are the reason for the 16 GB
-recommendation.** At the panel (d)/(a) configuration — 10,000 concurrent timers,
-6.3 M timer operations per second — Lion's resident set grows linearly with the
-length of the run, at ~0.95 GB/s (1.9 GB at 2 s, 4.9 GB at 5 s, 9.5 GB at 10 s;
-~152 bytes retained per timer operation). Tokio at the same configuration stays
-at 9 MB. This is the memory cost of Lion's monotonic resource-id allocator: the
-free-list reuse path is disabled, so the id window grows with the number of
-registrations — the code says so at `lion-reactor/src/alloc_verified.rs:10`.
-The paper's 10 s runs are unaffected in throughput terms, but a longer
-`DURATION` on the timer panels will grow memory in proportion, and a machine
-with less than 16 GB may not survive them.
+**The micro benchmark's timer panels were the reason for the 16 GB
+recommendation, and the `micro` row above was recorded then.** At the panel
+(d)/(a) configuration — 10,000 concurrent timers, 6.3 M timer operations per
+second — Lion's resident set grew linearly with the length of the run, at
+~0.95 GB/s (1.9 GB at 2 s, 4.9 GB at 5 s, 9.5 GB at 10 s; ~152 bytes retained
+per timer operation), while Tokio stayed at 9 MB. Resource and task ids are monotone and
+never reused, and the containers keyed by them (resource slab, task slab, the
+timer wheel's deadline/position maps, the io-readiness and task-notified TLS
+tables) were windows indexed by id, so they grew with every registration. They
+are now maps holding live entries only (see `lion-reactor/src/alloc_verified.rs`
+and `TCB_and_limitations.md` §2). Measured on a 64-core host with
+`micro-timer --runtime lion --threads 1 --load 10000 --duration 10`, peak RSS
+went from 2.8–3.1 GiB to ~11 MiB; that host's throughput went from 1.85–2.04 M to
+0.65–0.85 M timer ops/s — the cost of hash-map operations on the timer hot
+path. About half of it is std's default SipHash: an unverified experiment with
+a multiplicative id hasher measured 1.19–1.49 M ops/s. A faster id hasher is
+left as a follow-up, so timer throughput from this revision is not comparable
+with the paper's.

@@ -30,8 +30,11 @@ proof fn lemma_zero_bit(b: u64)
 
 // Bit-packed monotone TID set (1 bit per TID, dense from 0). TIDs are
 // allocated by a monotone counter, so the words vector grows with the max
-// TID ever marked and is never shrunk — the same accepted interim regression
-// class as the no-reuse rid window (to be reclaimed with generational ids).
+// TID ever marked and is never shrunk. Unlike the task slab and the TLS
+// notified set (which hold live tasks only), this is by design a HISTORY set —
+// "was ever injected" is exactly what the TID-freshness filter checks — so it
+// is the one id-proportional structure left, at 1 bit per task ever spawned
+// (125 KB per million tasks).
 pub struct TidLedger {
   pub words: Vec<u64>,
 }

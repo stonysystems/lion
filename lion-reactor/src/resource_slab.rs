@@ -816,11 +816,6 @@ impl ResourceSlab {
   }
 
   pub fn is_empty_timers(&self) -> bool {
-    for slot in &self.inner.inner {
-      if let Some(ResourceSlotWrapper { inner: ResourceSlot::Timer { .. } }) = slot {
-        return false;
-      }
-    }
-    true
+    !self.inner.values().any(|w| matches!(w.inner, ResourceSlot::Timer { .. }))
   }
 }

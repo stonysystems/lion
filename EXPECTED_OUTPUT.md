@@ -51,7 +51,7 @@ The counts to expect, in the order `ci.sh` runs them:
 | lion-framework-spec | 8 |
 | lion-executor-spec | 12 |
 | lion-slab | 5 |
-| lion-timer-wheel | 123 |
+| lion-timer-wheel | 117 |
 | lion-reactor-spec | 57 |
 | lion-reactor | 206 |
 | lion-executor | 99 |
@@ -168,9 +168,9 @@ rows in total, which is the completeness check.
 
 - `warning: 'lion-micro-bench' (bin "micro-timer") generated 1 warning` during
   the build.
-- **Memory.** The Lion timer cells grow to ~9.5 GB resident over a 10 s run
-  (~0.95 GB/s; Tokio at the same configuration stays at 9 MB). This is expected
-  — see `REQUIREMENTS.md` §4 — and it is why 16 GB is the recommended minimum.
+- **Memory.** The Lion timer cells stay flat (~11 MiB peak RSS in a 10 s
+  `--load 10000` run). Before the id-keyed containers became maps they grew to
+  ~9.5 GB resident over a 10 s run (~0.95 GB/s) — see `REQUIREMENTS.md` §4.
 
 **Worth investigating:** `!! skipped <runtime> load=... run=N` on stderr — a run
 failed three times and was dropped, leaving that cell short of 10 samples. A

@@ -2,6 +2,7 @@
 
 use crate::reactor::Reactor;
 use crate::reactor::enter::with_current_reactor;
+use crate::readiness;
 use crate::types::{Instant, Interest, IoResult, ResourceId, Source, Waker};
 use std::cell::Cell;
 
@@ -48,13 +49,20 @@ impl ReactorHandle {
       .expect("ReactorHandle used outside reactor context")
   }
 
+  // Also drops the rid's readiness entry: every io resource that called
+  // `readiness::init_readiness` deregisters through here exactly once (the
+  // TcpStream / TcpListener / UdpSocket Drop impls), and rids are never reused,
+  // so the entry could never be read again. Removing it whatever the result
+  // keeps the readiness table proportional to live io resources.
   pub fn deregister_io_resource(
     &self,
     resource_id: ResourceId,
     source: &mut Source,
   ) -> IoResult<()> {
-    with_current_reactor(|reactor| reactor.deregister_io_resource(resource_id, source))
-      .expect("ReactorHandle used outside reactor context")
+    let result = with_current_reactor(|reactor| reactor.deregister_io_resource(resource_id, source))
+      .expect("ReactorHandle used outside reactor context");
+    readiness::remove_readiness(resource_id);
+    result
   }
 
   pub fn set_waker(&self, resource_id: ResourceId, interest: Interest, waker: Waker) {
