@@ -1,7 +1,10 @@
 use std::collections::VecDeque;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use crate::types::{JoinHandle, JoinSender};
+use crate::types::JoinHandle;
+use crate::types::join_handle::JoinError;
 
 struct Task {
   f: Box<dyn FnOnce() + Send>,
@@ -12,12 +15,12 @@ struct Worker {
   thread: thread::Thread,
 }
 
+// Shared by every thread that calls spawn_blocking (it lives in a static), so
+// the round-robin cursor is atomic and the pool is Sync without an unsafe impl.
 pub struct BlockingPool {
   workers: Vec<Worker>,
-  next: std::cell::Cell<usize>,
+  next: AtomicUsize,
 }
-
-unsafe impl Sync for BlockingPool {}
 
 impl BlockingPool {
   pub fn new(num_threads: usize) -> Self {
@@ -32,7 +35,11 @@ impl BlockingPool {
           loop {
             let task = queue_clone.lock().unwrap().pop_front();
             match task {
-              Some(t) => (t.f)(),
+              // The closure contains its own panic (below); this catch keeps
+              // the worker alive even if resolving the handle panics.
+              Some(t) => {
+                let _ = catch_unwind(AssertUnwindSafe(t.f));
+              }
               None => break,
             }
           }
@@ -50,7 +57,7 @@ impl BlockingPool {
 
     BlockingPool {
       workers,
-      next: std::cell::Cell::new(0),
+      next: AtomicUsize::new(0),
     }
   }
 
@@ -60,15 +67,24 @@ impl BlockingPool {
     R: Send + 'static,
   {
     let (handle, sender) = JoinHandle::new();
+    // A handle aborted before the closure starts cancels it; a panic in the
+    // closure resolves the handle with the payload instead of killing the
+    // worker thread.
     let task = Task {
       f: Box::new(move || {
-        sender.complete(f());
+        if sender.is_cancelled() {
+          sender.finish(Err(JoinError::cancelled()));
+          return;
+        }
+        match catch_unwind(AssertUnwindSafe(f)) {
+          Ok(value) => sender.complete(value),
+          Err(payload) => sender.finish(Err(JoinError::panic(payload))),
+        }
       }),
     };
 
     let n = self.workers.len();
-    let idx = self.next.get() % n;
-    self.next.set(idx + 1);
+    let idx = self.next.fetch_add(1, Ordering::Relaxed) % n;
 
     let worker = &self.workers[idx];
     worker.queue.lock().unwrap().push_back(task);

@@ -95,6 +95,23 @@ pub fn clear_current_task() {
   CURRENT_TASK.with(|c| c.set(None));
 }
 
+// Installs a current task for a scope and clears it on exit, including when
+// the scope unwinds (a panicking block_on future must not leave its id behind).
+pub(crate) struct CurrentTaskGuard;
+
+impl CurrentTaskGuard {
+  pub(crate) fn enter(task_id: TaskId) -> Self {
+    set_current_task(task_id);
+    CurrentTaskGuard
+  }
+}
+
+impl Drop for CurrentTaskGuard {
+  fn drop(&mut self) {
+    clear_current_task();
+  }
+}
+
 pub fn get_current_task() -> Option<TaskId> {
   CURRENT_TASK.with(|c| c.get())
 }

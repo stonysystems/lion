@@ -126,7 +126,18 @@ theorems:
   analogous guard). Once the waiter is polled the guard turns off, so normal
   wake→poll(Ready)→drop cleanup traces are in the theorem domain. One class of
   traces remains excluded: a task externally aborted/dropped mid-await whose rid
-  is deregistered while the guard is still on — task abort is unmodeled.
+  is deregistered while the guard is still on — task abort is unmodeled. The
+  public API reaches that class: `JoinHandle::abort`, a task panic, and dropping
+  a runtime with tasks alive all drop a task's future, and so deregister its io,
+  without the model's cooperation. Abort and panic are shaped so the executor
+  proofs need no new event: the task's wrapper (`TaskCell`, trusted glue) is
+  woken, drops the future inside that poll and returns Ready, so the log shows
+  an ordinary `PollTask{Ready}` that retires the task. But if the dropped future
+  was awaiting io, the deregistration inside that poll falls while the guard
+  is on, and the trace leaves the theorem domain from there. Nothing is lost by
+  it for the aborted or panicked task itself, whose handle resolves with a
+  `JoinError` instead of an output; the theorem says nothing about the rest of
+  such a run.
 - **io readiness obligation is cancellation-guarded and carries its own
   bound** (assumption on the external environment; user cancellation lifts it): `io_ready_forward_here` owes an `IoEventReady`
   only if no successful io deregistration of the rid follows the last SetWaker —
@@ -192,7 +203,7 @@ For handwritten items, file:line is the
 `#[verifier::external_body]` attribute line; for items marked "(macro-generated)",
 file:line is the `reactor_log_action!` / `executor_log_action!` invocation site —
 the single external_body attribute lives in the macro body (reactor ext.rs:91,
-executor ext.rs:32), whose ensures/frame clauses are shared verbatim by every
+executor ext.rs:33), whose ensures/frame clauses are shared verbatim by every
 expansion, so auditing them all reduces to auditing the macro body once. Because
 of this, `grep -rn "verifier::external_body"` is auxiliary only (101 attribute
 lines stand for the 118 items); the AUTHORITATIVE inventory is these tables plus
@@ -286,8 +297,8 @@ registrations, so it is physically unreachable; noted here for completeness.
 
 | file:line | fn name | category | trusted postcondition |
 |---|---|---|---|
-| src/types/boxed_future.rs:10 | `struct BoxedFuture` | view | opaque wrapper of `Pin<Box<dyn Future>>` |
-| src/types/boxed_future.rs:18 | `BoxedFuture::view` | view | view is the constant `0int` (all futures spec-indistinguishable) |
+| src/types/boxed_future.rs:12 | `struct BoxedFuture` | view | opaque wrapper of `Pin<Box<dyn Future>>` (always a `TaskCell`, see the runtime-glue table in §4) |
+| src/types/boxed_future.rs:20 | `BoxedFuture::view` | view | view is the constant `0int` (all futures spec-indistinguishable) |
 | src/collections/vec_deque.rs:9 | `struct VecDeque<T>` | view | opaque wrapper of `std::collections::VecDeque` |
 | src/collections/vec_deque.rs:18 | `VecDeque::view` | view | uninterpreted spec view as `Seq<T::V>` |
 | src/collections/vec_deque.rs:25 | `VecDeque::new` | semantic | fresh deque views as the empty sequence |
@@ -319,25 +330,25 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/types/duration.rs:45 | `Duration::into_reactor` | raw | no ensures (opaque effect) |
 | src/types/duration.rs:53 | `From<ReactorDuration>` | raw | no ensures (opaque effect) |
 | src/types/duration.rs:61 | `From<Duration> for ReactorDuration` | raw | no ensures (opaque effect) |
-| src/executor/ext.rs:46 | `Executor::tick_begin_action` | ghost-log | ghost log gains `Tick{result:None}`; local_queue/task_slab/ledger unchanged (macro-generated) |
-| src/executor/ext.rs:51 | `Executor::tick_end_action` | ghost-log | ghost log gains `Tick{result:Some(())}`; local_queue/task_slab/ledger unchanged (macro-generated) |
-| src/executor/ext.rs:58 | `Executor::log_poll_task_action` | ghost-log | ghost log gains `PollTask{task_id, task@, result}`; local_queue/task_slab/ledger unchanged (macro-generated) |
-| src/executor/ext.rs:69 | `Executor::log_pop_injection_action` | ghost-log | ghost log gains `PopInjection{task@}` recording exactly what the verified layer decided; state unchanged (macro-generated) |
-| src/executor/ext.rs:78 | `Executor::log_drain_task_wake_action` | ghost-log | ghost log gains one `Drain{TaskWake, ids@}` recording exactly the ids the verified layer kept; state unchanged (macro-generated) |
-| src/executor/ext.rs:86 | `Executor::log_drain_reactor_wake_action` | ghost-log | ghost log gains one `Drain{ReactorWake, ids@}`; state unchanged (macro-generated) |
-| src/executor/ext.rs:94 | `Executor::log_drain_deferred_action` | ghost-log | ghost log gains one `Drain{Deferred, ids@}`; state unchanged (macro-generated) |
-| src/executor/ext.rs:110 | `Executor::poll_future_raw` | raw | shape-only ensures (Some task ⇒ task handed back and result Ready/Pending; None ⇒ Pending) — free function with NO executor access runs the user future; residual trust: user wake/spawn effects route through TLS. The old `poll_task_action` contract is reassembled in verified code |
-| src/executor/ext.rs:158 | `Executor::poll_task_invalid_action` | ghost-log | ghost log gains `PollTask{result: Invalid}`; state unchanged |
-| src/executor/ext.rs:176 | `Executor::try_recv_raw` | raw | no ensures — plain mpsc `try_recv`, no executor access, no claims about what comes out; TID freshness is enforced by a verified ledger check in `pop_injection_action` |
-| src/executor/ext.rs:245 | `Executor::park_action` | ghost-log | log gains `Park`; local_queue/task_slab/ledger unchanged (real effect: reactor flush + park) |
-| src/executor/ext.rs:265 | `Executor::reset_and_drain_cross_thread_action` | raw | no ensures (opaque effect) — resets interrupt, drains cross-thread queue into TLS |
-| src/executor/ext.rs:272 | `Executor::has_deferred_action` | raw | no ensures (opaque effect) — TLS queue probe |
-| src/executor/ext.rs:278 | `Executor::has_reactor_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
-| src/executor/ext.rs:284 | `Executor::has_task_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
-| src/executor/ext.rs:290 | `Executor::take_block_on_yielded_action` | raw | no ensures (opaque effect) — takes TLS yield flag |
-| src/executor/ext.rs:300 | `Executor::take_task_ready_from_tls` | raw | no ensures — hands over the TLS task-wake ids as a plain Vec, no claims; fabricated TIDs are filtered by the verified ledger layer (`filter_and_enqueue`), which PROVES the old drain ensures |
-| src/executor/ext.rs:307 | `Executor::take_reactor_ready_from_tls` | raw | no ensures — TLS reactor-wake ids as a plain Vec, no claims (verified filter downstream) |
-| src/executor/ext.rs:313 | `Executor::take_deferred_from_tls` | raw | no ensures — TLS deferred ids as a plain Vec, no claims (verified filter downstream) |
+| src/executor/ext.rs:47 | `Executor::tick_begin_action` | ghost-log | ghost log gains `Tick{result:None}`; local_queue/task_slab/ledger unchanged (macro-generated) |
+| src/executor/ext.rs:52 | `Executor::tick_end_action` | ghost-log | ghost log gains `Tick{result:Some(())}`; local_queue/task_slab/ledger unchanged (macro-generated) |
+| src/executor/ext.rs:59 | `Executor::log_poll_task_action` | ghost-log | ghost log gains `PollTask{task_id, task@, result}`; local_queue/task_slab/ledger unchanged (macro-generated) |
+| src/executor/ext.rs:70 | `Executor::log_pop_injection_action` | ghost-log | ghost log gains `PopInjection{task@}` recording exactly what the verified layer decided; state unchanged (macro-generated) |
+| src/executor/ext.rs:79 | `Executor::log_drain_task_wake_action` | ghost-log | ghost log gains one `Drain{TaskWake, ids@}` recording exactly the ids the verified layer kept; state unchanged (macro-generated) |
+| src/executor/ext.rs:87 | `Executor::log_drain_reactor_wake_action` | ghost-log | ghost log gains one `Drain{ReactorWake, ids@}`; state unchanged (macro-generated) |
+| src/executor/ext.rs:95 | `Executor::log_drain_deferred_action` | ghost-log | ghost log gains one `Drain{Deferred, ids@}`; state unchanged (macro-generated) |
+| src/executor/ext.rs:131 | `Executor::poll_future_raw` | raw | shape-only ensures (Some task ⇒ task handed back and result Ready/Pending; None ⇒ Pending) — free function with NO executor access runs the user future; residual trust: user wake/spawn effects route through TLS. The body calls the plain-Rust `poll_task_contained`, which installs the task, polls it under `catch_unwind` and reports a poll that unwinds as Ready, so no unwind reaches the verified tick. The old `poll_task_action` contract is reassembled in verified code |
+| src/executor/ext.rs:175 | `Executor::poll_task_invalid_action` | ghost-log | ghost log gains `PollTask{result: Invalid}`; state unchanged |
+| src/executor/ext.rs:193 | `Executor::try_recv_raw` | raw | no ensures — plain mpsc `try_recv`, no executor access, no claims about what comes out; TID freshness is enforced by a verified ledger check in `pop_injection_action` |
+| src/executor/ext.rs:262 | `Executor::park_action` | ghost-log | log gains `Park`; local_queue/task_slab/ledger unchanged (real effect: reactor flush + park) |
+| src/executor/ext.rs:282 | `Executor::reset_and_drain_cross_thread_action` | raw | no ensures (opaque effect) — resets interrupt, drains cross-thread queue into TLS |
+| src/executor/ext.rs:289 | `Executor::has_deferred_action` | raw | no ensures (opaque effect) — TLS queue probe |
+| src/executor/ext.rs:295 | `Executor::has_reactor_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
+| src/executor/ext.rs:301 | `Executor::has_task_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
+| src/executor/ext.rs:307 | `Executor::take_block_on_yielded_action` | raw | no ensures (opaque effect) — takes TLS yield flag |
+| src/executor/ext.rs:317 | `Executor::take_task_ready_from_tls` | raw | no ensures — hands over the TLS task-wake ids as a plain Vec, no claims; fabricated TIDs are filtered by the verified ledger layer (`filter_and_enqueue`), which PROVES the old drain ensures |
+| src/executor/ext.rs:324 | `Executor::take_reactor_ready_from_tls` | raw | no ensures — TLS reactor-wake ids as a plain Vec, no claims (verified filter downstream) |
+| src/executor/ext.rs:330 | `Executor::take_deferred_from_tls` | raw | no ensures — TLS deferred ids as a plain Vec, no claims (verified filter downstream) |
 | src/executor/poll_task.rs:11 | `clear_task_notified` | raw | no ensures (opaque effect) — clears TLS notified flag |
 | src/executor/enter.rs:8 | `Executor::enter` | raw | no ensures (opaque effect) — installs reactor TLS context |
 
@@ -412,6 +423,9 @@ lion-utility's glue; it reaches verified code only through the executor's
 |---|---|---|
 | src/types/waker.rs | `ExecutorWaker` (`Arc` + std `Wake`) | on the owner thread a wake pushes the task id onto the TLS queue of its source (task, reactor or deferred); on any other thread it pushes onto the runtime's cross-thread queue and interrupts the park. `Send`/`Sync` are derived by the compiler: the former `unsafe impl Send/Sync` are gone |
 | src/types/waker.rs | `create_reactor_waker_for_current` | the current task's `ExecutorWaker` with source Reactor. It replaced a `RawWakerVTable` waker that pushed onto the *calling* thread's TLS queue, which lost a wake from any other thread. Removed with it: the unused task vtable waker (`create_raw_task_waker`, `TASK_WAKER_VTABLE`) and the process-global `GLOBAL_CTX` that only that waker read |
+| src/types/boxed_future.rs | `TaskCell` | the outermost future of every task. Per poll: register the task's waker once (for abort), return Ready without polling if the handle was aborted, else poll the user future under `catch_unwind`. On Ready, panic or abort it drops the future in place (containing a panicking destructor), then resolves the `JoinHandle` with the output, a panic `JoinError` carrying the payload, or a cancelled one (containing a panicking join waker). So its poll never unwinds and the verified core only sees Ready/Pending. Holds the one new `unsafe`: the structural pin projection of `future` (re-pinned by reference, dropped in place, never moved; no hand-written `Drop` or `Unpin`) |
+| src/types/join_handle.rs | `JoinHandle` / `JoinSender` / `JoinError` | the join channel (`Arc` of an atomic cancel flag and a `Mutex` of result, join waker and task waker; locks entered even if poisoned, no user code under a lock). `abort` sets the flag and wakes the task's registered waker; a `JoinSender` dropped unfinished resolves the handle as cancelled, so no await of a handle can hang on a task that is gone. `JoinError` is cancelled or panic (payload kept, tokio-shaped accessors). The former `unsafe impl Send for JoinSender` is gone: it is derived |
+| src/blocking.rs | `spawn_blocking` pool | a closure runs under `catch_unwind` (a panic resolves its handle with the payload, the worker survives); a handle aborted before its closure starts cancels it. The round-robin cursor is an `AtomicUsize`: the former `Cell` inside an `unsafe impl Sync` pool was a data race between threads calling `spawn_blocking` |
 | src/tls.rs | `CrossThreadQueue` | a std `Mutex<VecDeque<TaskId>>` (formerly a flume channel) that every thread may push to and only the owner drains, one batch per drain: no id pushed is lost or duplicated. lion-executor now depends on std alone outside the Verus crates (flume, futures-task and pin-project-lite are gone; the last two were never used) |
 
 **lion-timer-wheel (7).** A trusted framing layer over `Vec` slot mutations —

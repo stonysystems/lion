@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::task::Context;
 use crate::tls;
 use crate::types::{create_waker, Duration, Instant, PollResult, Task, TaskId, TID, TaskView, WakeSource};
@@ -99,6 +100,26 @@ executor_log_action! {
     })
 }
 
+// Trusted glue behind `poll_future_raw` (plain Rust, outside verus!): one poll
+// of a task's future with the task installed as the current task. TaskCell
+// (types/boxed_future.rs), the outermost future of every task, already turns
+// panics in user code into a completed poll; this catch is the backstop at the
+// executor boundary, so that no unwind reaches the verified tick whatever
+// future a Task holds. A poll that unwinds anyway is reported Ready: the
+// verified core retires the task and drops it, and a JoinSender dropped
+// unfinished resolves its handle as cancelled.
+fn poll_task_contained(task_id: TaskId, task: &mut Task) -> PollResult<()> {
+  tls::set_current_task(task_id);
+  let waker = create_waker(task_id, WakeSource::Task, false);
+  let mut context = Context::from_waker(&waker);
+  let result = match catch_unwind(AssertUnwindSafe(|| task.poll(&mut context))) {
+    Ok(poll) => PollResult::from(poll),
+    Err(_) => PollResult::Ready(()),
+  };
+  tls::clear_current_task();
+  result
+}
+
 verus! {
 
 impl Executor {
@@ -117,11 +138,7 @@ impl Executor {
   {
     match task {
       Some(mut t) => {
-        tls::set_current_task(task_id);
-        let waker = create_waker(task_id, WakeSource::Task, false);
-        let mut context = Context::from_waker(&waker);
-        let poll_result = PollResult::from(t.poll(&mut context));
-        tls::clear_current_task();
+        let poll_result = poll_task_contained(task_id, &mut t);
         (poll_result, Some(t))
       }
       None => {

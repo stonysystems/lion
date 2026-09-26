@@ -46,7 +46,11 @@ impl<T> std::future::Future for SpawnHandle<T> {
             SpawnHandle::Tokio(jh) => {
                 match std::pin::Pin::new(jh).poll(cx) {
                     std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Ok(v)),
-                    std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(lion::JoinError)),
+                    std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(if e.is_panic() {
+                        lion::JoinError::panic(e.into_panic())
+                    } else {
+                        lion::JoinError::cancelled()
+                    })),
                     std::task::Poll::Pending => std::task::Poll::Pending,
                 }
             }

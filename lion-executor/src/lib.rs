@@ -101,9 +101,10 @@ impl Runtime {
     let mut context = Context::from_waker(&waker);
 
     loop {
-      tls::set_current_task(block_on_task_id);
-      let poll_result = future.as_mut().poll(&mut context);
-      tls::clear_current_task();
+      let poll_result = {
+        let _current = tls::CurrentTaskGuard::enter(block_on_task_id);
+        future.as_mut().poll(&mut context)
+      };
       if let Poll::Ready(result) = poll_result {
         return result;
       }
