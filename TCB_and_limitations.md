@@ -412,6 +412,7 @@ lion-utility's glue; it reaches verified code only through the executor's
 |---|---|---|
 | src/types/waker.rs | `ExecutorWaker` (`Arc` + std `Wake`) | on the owner thread a wake pushes the task id onto the TLS queue of its source (task, reactor or deferred); on any other thread it pushes onto the runtime's cross-thread queue and interrupts the park. `Send`/`Sync` are derived by the compiler: the former `unsafe impl Send/Sync` are gone |
 | src/types/waker.rs | `create_reactor_waker_for_current` | the current task's `ExecutorWaker` with source Reactor. It replaced a `RawWakerVTable` waker that pushed onto the *calling* thread's TLS queue, which lost a wake from any other thread. Removed with it: the unused task vtable waker (`create_raw_task_waker`, `TASK_WAKER_VTABLE`) and the process-global `GLOBAL_CTX` that only that waker read |
+| src/tls.rs | `CrossThreadQueue` | a std `Mutex<VecDeque<TaskId>>` (formerly a flume channel) that every thread may push to and only the owner drains, one batch per drain: no id pushed is lost or duplicated. lion-executor now depends on std alone outside the Verus crates (flume, futures-task and pin-project-lite are gone; the last two were never used) |
 
 **lion-timer-wheel (7).** A trusted framing layer over `Vec` slot mutations —
 each ensures pins the exact single-slot effect plus the exact `level_counts`

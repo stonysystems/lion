@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use crate::collections::VecDeque;
 use crate::types::TaskId;
 use lion_reactor::InterruptHandle;
@@ -151,19 +151,27 @@ pub(crate) fn drain_deferred_into(target: &mut VecDeque<TaskId>) {
   });
 }
 
+// Task ids woken from threads other than the owner. Any thread pushes; only
+// the owner drains, taking the whole batch under the lock and queueing it
+// after releasing it. A plain Mutex<VecDeque> (std's, not the verified
+// crate::collections wrapper): cross-thread wakes are rare next to owner-thread
+// ones, and nothing here panics while holding the lock, so it cannot be
+// poisoned; a poisoned lock is still entered rather than lose wakes.
 pub(crate) struct CrossThreadQueue {
-  inner: flume::Sender<TaskId>,
-  receiver: flume::Receiver<TaskId>,
+  ids: Mutex<std::collections::VecDeque<TaskId>>,
 }
 
 impl CrossThreadQueue {
   pub fn new() -> Arc<Self> {
-    let (tx, rx) = flume::unbounded();
-    Arc::new(Self { inner: tx, receiver: rx })
+    Arc::new(Self { ids: Mutex::new(std::collections::VecDeque::new()) })
   }
 
   pub fn push(&self, task_id: TaskId) {
-    self.inner.send(task_id).ok();
+    self.ids.lock().unwrap_or_else(PoisonError::into_inner).push_back(task_id);
+  }
+
+  fn take_all(&self) -> std::collections::VecDeque<TaskId> {
+    std::mem::take(&mut *self.ids.lock().unwrap_or_else(PoisonError::into_inner))
   }
 }
 
@@ -180,13 +188,10 @@ pub(crate) fn get_cross_thread_ctx() -> (Arc<CrossThreadQueue>, InterruptHandle,
 }
 
 pub(crate) fn drain_cross_thread() {
-  CROSS_THREAD_CTX.with(|c| {
-    if let Some((queue, _, _)) = c.borrow().as_ref() {
-      while let Ok(tid) = queue.receiver.try_recv() {
-        push_task_ready(tid);
-      }
-    }
-  });
+  let batch = CROSS_THREAD_CTX.with(|c| c.borrow().as_ref().map(|(queue, _, _)| queue.take_all()));
+  for tid in batch.into_iter().flatten() {
+    push_task_ready(tid);
+  }
 }
 
 pub(crate) fn reset_interrupt() {

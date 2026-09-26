@@ -177,7 +177,6 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 name = "lion"
 version = "0.1.0"
 dependencies = [
- "flume",
  "lion-executor",
  "lion-macro",
  "lion-reactor",
@@ -189,8 +188,6 @@ dependencies = [
 name = "lion-executor"
 version = "0.1.0"
 dependencies = [
- "flume",
- "futures-task",
  "lion-executor-spec",
  "lion-framework-spec",
  "lion-reactor",
@@ -198,7 +195,6 @@ dependencies = [
  "lion-slab",
  "lion-timer-wheel",
  "lion-utility-spec",
- "pin-project-lite",
  "vstd",
 ]
 

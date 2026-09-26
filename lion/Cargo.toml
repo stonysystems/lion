@@ -12,4 +12,3 @@ lion-reactor = { path = "../lion-reactor", package = "lion-reactor" }
 lion-utility-verified = { path = "../lion-utility", package = "lion-utility" }
 lion-macro = { path = "../lion-macro" }
 tokio = { version = "1", features = ["sync", "macros", "io-util", "rt"] }
-flume = "0.11"

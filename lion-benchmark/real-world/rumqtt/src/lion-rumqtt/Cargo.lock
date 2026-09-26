@@ -720,7 +720,6 @@ checksum = "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095"
 dependencies = [
  "futures-core",
  "futures-sink",
- "nanorand",
  "spin",
 ]
 
@@ -871,10 +870,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1311,7 +1308,6 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 name = "lion"
 version = "0.1.0"
 dependencies = [
- "flume",
  "lion-executor",
  "lion-macro",
  "lion-reactor",
@@ -1323,8 +1319,6 @@ dependencies = [
 name = "lion-executor"
 version = "0.1.0"
 dependencies = [
- "flume",
- "futures-task",
  "lion-executor-spec",
  "lion-framework-spec",
  "lion-reactor",
@@ -1332,7 +1326,6 @@ dependencies = [
  "lion-slab",
  "lion-timer-wheel",
  "lion-utility-spec",
- "pin-project-lite",
  "vstd",
 ]
 
@@ -1539,15 +1532,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nanorand"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
-dependencies = [
- "getrandom 0.2.17",
 ]
 
 [[package]]
