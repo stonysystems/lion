@@ -22,6 +22,7 @@ use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll};
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use lion_reactor::Reactor;
 use config::RuntimeConfig;
 use handle::InnerHandle;
@@ -38,16 +39,44 @@ impl ExecutorHandle {
   pub fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) -> types::JoinHandle<T> {
   self.inner.spawn(future)
   }
+
+  /// Spawns a future that need not be `Send` onto this handle's runtime. The
+  /// task is polled and dropped only on the runtime's own thread (the thread
+  /// that created the `Runtime`).
+  ///
+  /// # Panics
+  ///
+  /// If called on any other thread. Use [`ExecutorHandle::spawn`] from there.
+  pub fn spawn_local<F>(&self, future: F) -> types::JoinHandle<F::Output>
+  where
+    F: Future + 'static,
+    F::Output: 'static,
+  {
+  self.inner.spawn_local(future)
+  }
 }
 
 thread_local! {
   static CURRENT_HANDLE: RefCell<Option<ExecutorHandle>> = RefCell::new(None);
 }
 
+/// A single-threaded Lion runtime. It is bound to the thread that creates it
+/// (it is neither `Send` nor `Sync`): that thread drives it, and `spawn_local`
+/// tasks live only there.
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<lion_executor::Runtime>();
+/// ```
 pub struct Runtime {
+  // Field order is drop order: the executor (its tasks and the injection
+  // receiver) goes first, while the reactor guard is still in place.
   executor: RefCell<Box<Executor>>,
   handle: ExecutorHandle,
   _guard: ReactorGuard,
+  // !Send: the executor may hold spawn_local tasks, which must be dropped on
+  // this thread (see types/boxed_future.rs, OwnerThreadOnly).
+  _not_send: PhantomData<*const ()>,
 }
 
 impl Runtime {
@@ -87,6 +116,7 @@ impl Runtime {
     executor: RefCell::new(executor),
     handle,
     _guard: guard,
+    _not_send: PhantomData,
   })
   }
 
@@ -129,6 +159,25 @@ pub fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static
     .as_ref()
     .expect("lion::spawn() called outside Lion runtime context")
     .spawn(future)
+  })
+}
+
+/// Spawns a future that need not be `Send` onto the current thread's runtime.
+/// It is polled and dropped only on this thread.
+///
+/// # Panics
+///
+/// If this thread has no running Lion runtime.
+pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
+where
+  F: Future + 'static,
+  F::Output: 'static,
+{
+  CURRENT_HANDLE.with(|h| {
+  h.borrow()
+    .as_ref()
+    .expect("lion::spawn_local() called outside Lion runtime context")
+    .spawn_local(future)
   })
 }
 

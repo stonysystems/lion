@@ -34,4 +34,23 @@ impl InnerHandle {
     let _ = self.reactor_interrupt.wake();
     handle
   }
+
+  // The owner-thread check is what makes BoxedFuture::local sound: it must
+  // come before the task is built.
+  pub fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+  where
+    F: Future + 'static,
+    F::Output: 'static,
+  {
+    assert!(
+      std::thread::current().id() == self.executor_thread_id,
+      "spawn_local called off the runtime's thread: a !Send task must be spawned on the thread that owns its runtime"
+    );
+    let task_id = TaskId(self.task_id_counter.fetch_add(1, Ordering::SeqCst));
+    let (handle, sender) = JoinHandle::new();
+    let task = Task::new(task_id, BoxedFuture::local(future, sender));
+    self.injection_queue.send(task);
+    let _ = self.reactor_interrupt.wake();
+    handle
+  }
 }

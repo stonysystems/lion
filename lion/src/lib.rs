@@ -17,11 +17,22 @@ pub mod task {
   pub use crate::spawn_blocking;
   pub use crate::JoinHandle;
 
+  /// Spawns a future that need not be `Send` onto the current thread's Lion
+  /// runtime (`lion_executor::spawn_local`). The task is polled and dropped
+  /// only on this thread. Unlike tokio, no `LocalSet` needs to be entered:
+  /// every Lion runtime is single-threaded.
+  ///
+  /// # Panics
+  ///
+  /// If this thread has no running Lion runtime.
+  pub use lion_executor::spawn_local;
+
   // Trusted compat glue: a LocalSet API mirroring tokio's surface so the SAME
   // source can run on Lion. Lion is current-thread (thread-per-core), so a task
-  // spawned "locally" is just a task on this thread's executor; the shim maps
-  // spawn_local -> spawn and run_until -> awaiting the future (spawned tasks are
-  // driven by the executor regardless of whether the LocalSet is being polled).
+  // spawned "locally" is just a !Send-capable task on this thread's executor;
+  // the shim maps spawn_local -> lion_executor::spawn_local and run_until ->
+  // awaiting the future (spawned tasks are driven by the executor regardless of
+  // whether the LocalSet is being polled).
   #[derive(Default)]
   pub struct LocalSet;
 
@@ -32,10 +43,10 @@ pub mod task {
 
     pub fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-      F: core::future::Future + Send + 'static,
-      F::Output: Send + 'static,
+      F: core::future::Future + 'static,
+      F::Output: 'static,
     {
-      crate::spawn(future)
+      lion_executor::spawn_local(future)
     }
 
     pub async fn run_until<F: core::future::Future>(&self, future: F) -> F::Output {
@@ -56,14 +67,6 @@ pub mod task {
   }
 
   pub struct LocalEnterGuard;
-
-  pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
-  where
-    F: core::future::Future + Send + 'static,
-    F::Output: Send + 'static,
-  {
-    crate::spawn(future)
-  }
 
   // Trusted compat glue: block_in_place mirrors tokio's API. Tokio runs the
   // blocking closure on the current worker (moving other tasks off it); Lion runs

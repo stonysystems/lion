@@ -36,8 +36,54 @@ impl BoxedFuture {
   }
   }
 
+  // A task whose future need not be Send. Only `InnerHandle::spawn_local`
+  // calls this, after checking it runs on the runtime's owner thread; see
+  // OwnerThreadOnly for why the task then never leaves that thread.
+  pub(crate) fn local<F>(future: F, sender: JoinSender<F::Output>) -> Self
+  where
+    F: Future + 'static,
+    F::Output: 'static,
+  {
+  BoxedFuture {
+    inner: Box::pin(OwnerThreadOnly(TaskCell::new(future, sender))),
+  }
+  }
+
   pub(crate) fn poll(&mut self, cx: &mut Context) -> Poll<()> {
   self.inner.as_mut().poll(cx)
+  }
+}
+
+// Trusted glue: the storage wrapper of a `spawn_local` task. The executor
+// stores every task as a Send future, because its task type also travels
+// through the injection channel that foreign-thread `spawn` feeds; tasks never
+// migrate, so for a local task only the storage type needs Send.
+//
+// SAFETY (the invariant behind `unsafe impl Send`): a local task is created on
+// its runtime's owner thread (`InnerHandle::spawn_local` asserts it) and never
+// reaches another thread:
+// - it is sent into the runtime's injection channel from the owner thread,
+//   and only the executor, driven by `Runtime::block_on`/`tick` on the owner
+//   thread, receives from it, so it is polled only there;
+// - it is dropped on the owner thread in every case: by the executor after
+//   its poll returns Ready (poll_task, inside a tick), with the task slab or
+//   the injection channel when the `Runtime` is dropped (`Runtime` is !Send,
+//   so that happens on its owner thread; the executor field, which holds the
+//   receiver, drops before the Runtime's own sender, and std's channel drops
+//   the queued messages as soon as the receiver disconnects first), or at once
+//   in `send` if the runtime is already gone.
+// No foreign thread ever holds an OwnerThreadOnly value.
+struct OwnerThreadOnly<F>(F);
+
+unsafe impl<F> Send for OwnerThreadOnly<F> {}
+
+impl<F: Future> Future for OwnerThreadOnly<F> {
+  type Output = F::Output;
+
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<F::Output> {
+    // SAFETY: structural projection of a newtype that has no Drop impl and
+    // never moves its field.
+    unsafe { self.map_unchecked_mut(|s| &mut s.0) }.poll(cx)
   }
 }
 
