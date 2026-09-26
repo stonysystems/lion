@@ -14,7 +14,7 @@ and the proof that composes them.
 | `lion-slab`, `lion-timer-wheel` | The leaf data structures the core builds on, verified independently | the leaf-structure layer of the module stack |
 | `lion-utility` (contains `lion-utility-spec`) | The verified utilities layer above the core (channels, synchronisation) | the utilities layer |
 | `lion-framework-spec`, `lion-executor-spec`, `lion-reactor-spec` | Shared specification crates: the event vocabulary and invariant definitions consumed by *both* the liveness proof and the impl-verified crates, so both sides quantify over the same definitions | the model↔implementation correspondence argument |
-| `lion` | The user-facing runtime facade — re-exports `spawn`, `Runtime`, the `#[lion::main]` macro; this is what an application depends on | the drop-in-replacement claim |
+| `lion` | The user-facing runtime facade — re-exports `spawn`, `task::spawn_local` (futures that are not `Send`), `Runtime`, `JoinHandle`/`JoinError`, the `#[lion::main]` macro; this is what an application depends on | the drop-in-replacement claim |
 | `lion-macro` | The `#[lion::main]` attribute macro | — |
 | `lion-benchmark` | Every experiment, each with its own `README.md`, `run.sh` and shipped `ref-result/` + `ref-2/` reference data | the evaluation section |
 | `mutation-test` | Proof-sensitivity experiment: does the verifier *reject* liveness-breaking mutants, and do trusted-region controls map the declared TCB boundary | the mutation-testing subsection |

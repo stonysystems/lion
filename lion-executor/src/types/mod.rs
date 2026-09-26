@@ -15,7 +15,7 @@ pub(crate) use boxed_future::BoxedFuture;
 pub(crate) use task::Task;
 pub(crate) use lion_executor_spec::types::TaskView;
 pub(crate) use waker::{create_waker, WakeSource};
-pub(crate) use reactor::{Reactor, ReactorGuard};
+pub(crate) use reactor::{Reactor, ReactorGuard, IDLE_PARK_MS};
 pub use join_handle::JoinHandle;
 pub use join_handle::JoinSender;
 

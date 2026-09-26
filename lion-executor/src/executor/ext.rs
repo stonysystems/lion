@@ -271,7 +271,7 @@ impl Executor {
       self.ledger == old(self).ledger,
   {
     let timeout = if require_timeout {
-      Some(Duration::from_millis(100))
+      Some(Duration::from_millis(self.reactor.idle_park_ms()))
     } else {
       Some(Duration::zero())
     };

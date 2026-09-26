@@ -180,6 +180,11 @@ per-item in [`TCB_and_limitations.md`](TCB_and_limitations.md):
 - **`external_body` boundary functions** (118 across the six verified crates — OS/syscall
   wrappers, waker plumbing, low-level slot operations) whose postconditions are trusted,
   not verified — plus two fully-unchecked `#[verifier::external]` items;
+- **the runtime's plain-Rust surface** around the verified core — `Runtime` (one per
+  thread; `block_on`, and `tick`/`tick_with_timeout` for an embedder's own loop), the
+  task wrapper that contains panics and carries `JoinHandle::abort`, `spawn_local`'s
+  owner-thread task storage, the wakers and the TLS wake queues — which Verus never
+  sees and which reaches verified code only through those boundary functions;
 - **the Verus toolchain and its SMT solver** (Verus pinned by `setup.sh`, bundling Z3 4.12.5; see `verus.config`),
   including vstd's specification of std `HashMap`, which the id-keyed maps call directly;
 - **model↔implementation correspondence**: the event vocabulary and invariant definitions

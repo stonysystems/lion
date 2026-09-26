@@ -186,9 +186,61 @@ impl Runtime {
       if let Poll::Ready(result) = poll_result {
         return result;
       }
-      let mut exec = self.executor.borrow_mut();
-      exec.tick();
+      self.run_tick(types::IDLE_PARK_MS);
     }
+  }
+
+  /// Runs one iteration of the loop that `block_on` drives, for an embedder
+  /// that owns its own loop: wake deferred tasks, admit newly spawned ones,
+  /// poll up to `event_interval` ready tasks, park the reactor, collect the
+  /// wakes it delivered (io, timers, other threads), and poll up to
+  /// `event_interval` ready tasks again. Tasks come from `spawn`,
+  /// `spawn_local` and the runtime's handle; `tick` never polls a future of
+  /// its own.
+  ///
+  /// The park blocks only when no task is ready, and then for at most 100 ms,
+  /// cut short by the next timer deadline, an io event, a wake from another
+  /// thread or a spawn. So an idle `tick` can take up to 100 ms. A loop with
+  /// work of its own must use [`Runtime::tick_with_timeout`] with the time it
+  /// can afford to wait (`Duration::ZERO` for a non-blocking step): the
+  /// executor cannot see the caller's work, and a plain `tick` would sleep
+  /// through it.
+  ///
+  /// # Panics
+  ///
+  /// If called from inside a task or a `block_on` future on this thread: the
+  /// loop is not re-entrant.
+  pub fn tick(&self) {
+    self.run_tick(types::IDLE_PARK_MS);
+  }
+
+  /// [`Runtime::tick`] with the idle park bounded by `max_park` instead of
+  /// 100 ms (rounded up to whole milliseconds; the reactor's clock is in ms).
+  /// `Duration::ZERO` makes the step non-blocking; a longer bound is allowed,
+  /// since every wake source (io, timers, spawns, other threads) interrupts
+  /// the park. When a task is ready the park never blocks, whatever the bound.
+  ///
+  /// # Panics
+  ///
+  /// As [`Runtime::tick`].
+  pub fn tick_with_timeout(&self, max_park: std::time::Duration) {
+    let ms = max_park.as_nanos().div_ceil(1_000_000).min(u64::MAX as u128) as u64;
+    self.run_tick(ms);
+  }
+
+  // Every tick sets the idle park bound it wants, so no caller inherits
+  // another's.
+  fn run_tick(&self, idle_park_ms: u64) {
+    assert!(
+      tls::get_current_task().is_none(),
+      "Runtime::tick called from inside a task or a block_on future: the runtime loop is not re-entrant"
+    );
+    let mut exec = self
+      .executor
+      .try_borrow_mut()
+      .expect("the Lion runtime loop is not re-entrant");
+    exec.reactor.set_idle_park_ms(idle_park_ms);
+    exec.tick();
   }
 }
 

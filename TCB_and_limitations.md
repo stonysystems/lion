@@ -319,9 +319,9 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/types/instant.rs:48 | `From<ReactorInstant>` | raw | no ensures (opaque effect) |
 | src/collections/mpsc_queue.rs:8 | `struct MpscSender<T>` | view | opaque wrapper of `std::sync::mpsc::Sender` |
 | src/collections/mpsc_queue.rs:14 | `struct MpscReceiver<T>` | view | opaque wrapper of `std::sync::mpsc::Receiver` |
-| src/types/reactor.rs:7 | `struct Reactor` | view | opaque wrapper of lion-reactor `Reactor` |
-| src/types/reactor.rs:12 | `struct ReactorGuard` | view | opaque wrapper of `LionReactorGuard` |
-| src/types/reactor.rs:18 | `Reactor::new` | raw | no ensures (opaque effect) |
+| src/types/reactor.rs:7 | `struct Reactor` | view | opaque wrapper of lion-reactor `Reactor`, plus the idle park bound `park_action` reads |
+| src/types/reactor.rs:17 | `struct ReactorGuard` | view | opaque wrapper of `LionReactorGuard` |
+| src/types/reactor.rs:23 | `Reactor::new` | raw | no ensures (opaque effect) |
 | src/types/duration.rs:14 | `Duration::view` | view | uninterpreted spec view (`nat`) |
 | src/types/duration.rs:21 | `Duration::zero` | raw | no ensures (opaque effect) |
 | src/types/duration.rs:27 | `Duration::from_millis` | raw | no ensures (opaque effect) |
@@ -340,7 +340,7 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/executor/ext.rs:131 | `Executor::poll_future_raw` | raw | shape-only ensures (Some task ⇒ task handed back and result Ready/Pending; None ⇒ Pending) — free function with NO executor access runs the user future; residual trust: user wake/spawn effects route through TLS. The body calls the plain-Rust `poll_task_contained`, which installs the task, polls it under `catch_unwind` and reports a poll that unwinds as Ready, so no unwind reaches the verified tick. The old `poll_task_action` contract is reassembled in verified code |
 | src/executor/ext.rs:175 | `Executor::poll_task_invalid_action` | ghost-log | ghost log gains `PollTask{result: Invalid}`; state unchanged |
 | src/executor/ext.rs:193 | `Executor::try_recv_raw` | raw | no ensures — plain mpsc `try_recv`, no executor access, no claims about what comes out; TID freshness is enforced by a verified ledger check in `pop_injection_action` |
-| src/executor/ext.rs:262 | `Executor::park_action` | ghost-log | log gains `Park`; local_queue/task_slab/ledger unchanged (real effect: reactor flush + park) |
+| src/executor/ext.rs:262 | `Executor::park_action` | ghost-log | log gains `Park`; local_queue/task_slab/ledger unchanged (real effect: reactor flush + park; the park bound is 0 when the executor has ready work, else the wrapper's idle bound: 100 ms, or the caller's `Runtime::tick_with_timeout` bound. The verified reactor park accepts any bound and caps it at the next timer deadline) |
 | src/executor/ext.rs:282 | `Executor::reset_and_drain_cross_thread_action` | raw | no ensures (opaque effect) — resets interrupt, drains cross-thread queue into TLS |
 | src/executor/ext.rs:289 | `Executor::has_deferred_action` | raw | no ensures (opaque effect) — TLS queue probe |
 | src/executor/ext.rs:295 | `Executor::has_reactor_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
@@ -417,18 +417,29 @@ The public runtime surface — `Runtime`, `ExecutorHandle`, the task wrapper,
 `JoinHandle`, the wakers and the TLS queues — is plain Rust outside every
 `verus!` block. Verus never sees it, so it is trusted as a whole, like
 lion-utility's glue; it reaches verified code only through the executor's
-`external_body` rows above. Its trusted items:
+`external_body` rows above. Its `unsafe` went from 15 sites at `7d872a9` (the
+two raw-waker vtables' nine `unsafe fn`s and two `Waker::from_raw` blocks, and
+`unsafe impl`s of `Send`/`Sync` for `ExecutorWaker`, `Send` for `JoinSender`
+and `Sync` for `BlockingPool`) to 4: `unsafe impl Send for OwnerThreadOnly`
+and three structural pin projections (two in `TaskCell`, one in
+`OwnerThreadOnly`). Its trusted items:
 
 | file | item | what is trusted |
 |---|---|---|
 | src/types/waker.rs | `ExecutorWaker` (`Arc` + std `Wake`) | on the owner thread a wake pushes the task id onto the TLS queue of its source (task, reactor or deferred); on any other thread it pushes onto the runtime's cross-thread queue and interrupts the park. `Send`/`Sync` are derived by the compiler: the former `unsafe impl Send/Sync` are gone |
 | src/types/waker.rs | `create_reactor_waker_for_current` | the current task's `ExecutorWaker` with source Reactor. It replaced a `RawWakerVTable` waker that pushed onto the *calling* thread's TLS queue, which lost a wake from any other thread. Removed with it: the unused task vtable waker (`create_raw_task_waker`, `TASK_WAKER_VTABLE`) and the process-global `GLOBAL_CTX` that only that waker read |
 | src/lib.rs, src/tls.rs; lion-reactor src/reactor/enter.rs | one runtime per thread (`runtime_is_live_on_this_thread`, `ThreadBinding`, `ReactorGuard`) | `Runtime::new` fails with `AlreadyExists`, before creating or installing anything, if the thread already has a runtime handle, cross-thread context or entered reactor, so a live runtime's thread-locals are never overwritten. On drop, the runtime clears each thread-local only if it is still its own (handle by runtime identity, context by `Arc` identity, reactor by address in `ReactorGuard`, which now records it), after its tasks are dropped, and then resets the thread's wake queues, notified set, current task, yield flag and cached clock, so a later runtime on the thread starts clean (task ids restart at 1 per runtime). The former drop cleared all three unconditionally. Nesting runtimes on one thread is not supported |
+| src/lib.rs | `Runtime::tick` / `tick_with_timeout` | one call of the verified `Executor::tick`, the same step `block_on` loops over, after storing the idle park bound in the reactor wrapper (`block_on` and `tick` store 100 ms). Refuses (panics) when called from inside a task or a `block_on` future, so the verified tick is never re-entered |
 | src/types/boxed_future.rs | `TaskCell` | the outermost future of every task. Per poll: register the task's waker once (for abort), return Ready without polling if the handle was aborted, else poll the user future under `catch_unwind`. On Ready, panic or abort it drops the future in place (containing a panicking destructor), then resolves the `JoinHandle` with the output, a panic `JoinError` carrying the payload, or a cancelled one (containing a panicking join waker). So its poll never unwinds and the verified core only sees Ready/Pending. Holds the one new `unsafe`: the structural pin projection of `future` (re-pinned by reference, dropped in place, never moved; no hand-written `Drop` or `Unpin`) |
 | src/types/boxed_future.rs, src/handle.rs, src/lib.rs | `spawn_local` / `OwnerThreadOnly` | the one `unsafe impl Send` added: the storage wrapper of a task whose future need not be `Send`. The executor stores every task as a `Send` future only because its task type also crosses threads in the injection channel that foreign `spawn` feeds. Invariant: `InnerHandle::spawn_local` asserts it runs on the runtime's owner thread before building the task; the task is then received and polled only by the executor on that thread, and dropped there in every case (after Ready in `poll_task`; with the task slab or the injection channel when the `Runtime` drops, which it can only do on its owner thread because `Runtime` is now `!Send` via a `PhantomData<*const ()>`; std's channel drops queued messages when its receiver disconnects first, and the executor field holding it drops before the Runtime's own sender). A second `unsafe`, the newtype's pin projection, carries no invariant beyond "no Drop, field never moved" |
 | src/types/join_handle.rs | `JoinHandle` / `JoinSender` / `JoinError` | the join channel (`Arc` of an atomic cancel flag and a `Mutex` of result, join waker and task waker; locks entered even if poisoned, no user code under a lock). `abort` sets the flag and wakes the task's registered waker; a `JoinSender` dropped unfinished resolves the handle as cancelled, so no await of a handle can hang on a task that is gone. `JoinError` is cancelled or panic (payload kept, tokio-shaped accessors). The former `unsafe impl Send for JoinSender` is gone: it is derived |
 | src/blocking.rs | `spawn_blocking` pool | a closure runs under `catch_unwind` (a panic resolves its handle with the payload, the worker survives); a handle aborted before its closure starts cancels it. The round-robin cursor is an `AtomicUsize`: the former `Cell` inside an `unsafe impl Sync` pool was a data race between threads calling `spawn_blocking` |
 | src/tls.rs | `CrossThreadQueue` | a std `Mutex<VecDeque<TaskId>>` (formerly a flume channel) that every thread may push to and only the owner drains, one batch per drain: no id pushed is lost or duplicated. lion-executor now depends on std alone outside the Verus crates (flume, futures-task and pin-project-lite are gone; the last two were never used) |
+
+Regression tests pin this glue where the verifier cannot: `lion-utility/tests/`
+`reactor_waker.rs`, `foreign_wake.rs`, `panic_abort.rs`, `spawn_local.rs`,
+`runtime_nesting.rs` and `tick.rs`, plus `lion/tests/facade.rs` and a
+`compile_fail` doctest that keeps `Runtime` `!Send`.
 
 **lion-timer-wheel (7).** A trusted framing layer over `Vec` slot mutations —
 each ensures pins the exact single-slot effect plus the exact `level_counts`
