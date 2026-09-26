@@ -33,11 +33,11 @@
       obligation; must be 0 before publishing.
 - [ ] `grep -rn "admit(" src/` returns empty. `admit()` outright abandons the proof.
 - [ ] `grep -rn "assume(false)" src/` returns empty. This is the #1 source of empty proofs.
-- [ ] Inventory `#[verifier::external_body]`: note that grep hits and entry counts are
-      **no longer 1:1** (the ghost-log family is macro-generated; one attribute inside
-      the macro body covers all expansions) — the authoritative inventory and counting
-      convention are in TCB_and_limitations.md's header and §3. Manually check, item by
-      item, that each postcondition matches the implementation's semantics.
+- [ ] Inventory `#[verifier::external_body]`: grep hits and entries are 1:1 (the
+      ghost-log families, once expanded from `macro_rules!`, are written out) — the
+      inventory and counting convention are in TCB_and_limitations.md's header and §3.
+      Manually check, item by item, that each postcondition matches the
+      implementation's semantics.
 - [ ] Inventory `#[verifier::external]` / `#[verifier::external_fn_specification]` /
       `assume_specification`: the parts that bypass verification entirely.
 - [ ] Inventory **file-level `verus::trusted` markers** (`grep -rln "verus::trusted"`,

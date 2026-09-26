@@ -10,10 +10,10 @@ grep -rn "external_body" lion-reactor/src lion-executor/src lion-timer-wheel/src
 
 **Count**: 118 trusted `external_body` items — lion-reactor 57, lion-executor 54,
 lion-timer-wheel 7, lion-slab 0, lion-utility 0. By trust kind: 22 `semantic`,
-26 `ghost-log`, 45 `raw`, 25 `view` (definitions in §3). The ghost-log families
-are macro-generated, so a raw grep undercounts (101 attribute lines for 118
-items); the §3 tables plus the two macro-invocation lists are the authoritative
-inventory. Beyond these: two `#[verifier::external]` items (`lion-slab
+26 `ghost-log`, 45 `raw`, 25 `view` (definitions in §3). Every item carries its
+own attribute line, so the grep above finds exactly the items (the two ghost-log
+families used to expand from `macro_rules!`, whose one attribute line stood for
+all their items; they are now written out). Beyond these: two `#[verifier::external]` items (`lion-slab
 Slab::get_mut` — a std `HashMap::get_mut`, external only because Verus cannot
 express `&mut` returns — and `Slab::values`, a std `HashMap::values` iterator
 used only by unverified code), and the pinned Verus toolchain (`setup.sh`,
@@ -47,12 +47,16 @@ theorems:
    log, so the log faithfully reflecting real execution is the foundational
    guarantee everything above rests on. The trusted surface for log updates is
    kept minimal: each action is an empty body appending exactly one fixed-shape
-   event and touching nothing else, and the whole family expands from two
-   macros (`reactor_log_action!` / `executor_log_action!`) — the definitions
-   occupy a tiny fraction of the code, auditing them reduces to the two macro
-   bodies, and shared expansion rules out per-function shape errors. What
-   remains trusted is the call protocol (each action invoked once, in order,
-   around its real effect); mechanized refinement is out of scope.
+   event and touching nothing else. The family sits in two blocks (reactor
+   `src/reactor/ext.rs`, executor `src/executor/ext.rs`) whose items share one
+   frame-clause block verbatim, so auditing them means checking each item's
+   pushed event against its name. They used to expand from two `macro_rules!`
+   (`reactor_log_action!` / `executor_log_action!`); they are written out now,
+   with identical attributes, signatures, events and frame clauses, so that no
+   `verus!` block is macro-generated (a source pre-pass that erases literal
+   `verus!` items does not expand macros). What remains trusted is the call
+   protocol (each action invoked once, in order, around its real effect);
+   mechanized refinement is out of scope.
 2. **mio / OS boundary** — `poll_events_action` (poll effects; tokens returned
    faithfully; readable/writable flags reflect real readiness — the rid<->token
    codec itself is verified), `register/deregister_io_source_action`,
@@ -199,17 +203,12 @@ executes its decisions (see the lion-utility section in §4).
 
 ## 3. Full inventory
 
-For handwritten items, file:line is the
-`#[verifier::external_body]` attribute line; for items marked "(macro-generated)",
-file:line is the `reactor_log_action!` / `executor_log_action!` invocation site —
-the single external_body attribute lives in the macro body (reactor ext.rs:91,
-executor ext.rs:33), whose ensures/frame clauses are shared verbatim by every
-expansion, so auditing them all reduces to auditing the macro body once. Because
-of this, `grep -rn "verifier::external_body"` is auxiliary only (101 attribute
-lines stand for the 118 items); the AUTHORITATIVE inventory is these tables plus
-the two macro-invocation lists. The "trusted postcondition" column summarizes
-what the `ensures` clause claims — this is exactly what verification trusts
-without checking. "no ensures" means the item is trusted only not to break
+For every item, file:line is the `#[verifier::external_body]` attribute line
+(`grep -rn "verifier::external_body"` lists them one to one). The ghost-log
+rows of `src/reactor/ext.rs` and `src/executor/ext.rs` share their frame
+clauses verbatim within each crate and differ only in the event they push.
+The "trusted postcondition" column summarizes what the `ensures` clause
+claims — this is exactly what verification trusts without checking. "no ensures" means the item is trusted only not to break
 memory safety / type soundness.
 
 Each item carries one of four categories:
@@ -246,24 +245,24 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/resource_slot_wrapper.rs:95 | `ResourceSlotWrapper::clone_timer_waker` | semantic | cloned waker views equal to the slot's stored timer waker |
 | src/resource_slot_wrapper.rs:106 | `ResourceSlotWrapper::clone_read_waker` | semantic | Some-ness matches slot's read_waker; value views equal when Some |
 | src/resource_slot_wrapper.rs:119 | `ResourceSlotWrapper::clone_write_waker` | semantic | Some-ness matches slot's write_waker; value views equal when Some |
-| src/reactor/ext.rs:105 | `Reactor::park_begin_action` | ghost-log | ghost log gains exactly one `Park{result:None}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:112 | `Reactor::park_end_action` | ghost-log | ghost log gains `Park{result:Some}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:119 | `Reactor::register_io_begin_action` | ghost-log | ghost log gains `RegisterIoResource{result:None}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:126 | `Reactor::register_io_end_action` | ghost-log | ghost log gains `RegisterIoResource{result:Some}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:133 | `Reactor::deregister_io_begin_action` | ghost-log | ghost log gains `DeregisterIoResource{result:None}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:140 | `Reactor::deregister_io_end_action` | ghost-log | ghost log gains `DeregisterIoResource{result:Some}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:147 | `Reactor::set_waker_begin_action` | ghost-log | ghost log gains `SetWaker{result:None}` recording rid/interest/waker; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:154 | `Reactor::set_waker_end_action` | ghost-log | ghost log gains `SetWaker{result:Ok(())}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:162 | `Reactor::register_timer_begin_action` | ghost-log | ghost log gains `RegisterTimer{result:None}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:170 | `Reactor::register_timer_end_action` | ghost-log | ghost log gains `RegisterTimer{result:Some}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:178 | `Reactor::deregister_timer_begin_action` | ghost-log | ghost log gains `DeregisterTimer{result:true}`; exec fields unchanged (macro-generated) |
-| src/reactor/ext.rs:189 | `Reactor::log_get_current_time_action` | ghost-log | ghost log gains `GetCurrentTime{t@}`; exec fields unchanged (macro-generated; clock monotonicity is PROVEN in the verified wrapper `get_current_time_action`, which clamps the raw reading to `wheel.elapsed`) |
+| src/reactor/ext.rs:94 | `Reactor::park_begin_action` | ghost-log | ghost log gains exactly one `Park{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:106 | `Reactor::park_end_action` | ghost-log | ghost log gains `Park{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:118 | `Reactor::register_io_begin_action` | ghost-log | ghost log gains `RegisterIoResource{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:130 | `Reactor::register_io_end_action` | ghost-log | ghost log gains `RegisterIoResource{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:142 | `Reactor::deregister_io_begin_action` | ghost-log | ghost log gains `DeregisterIoResource{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:154 | `Reactor::deregister_io_end_action` | ghost-log | ghost log gains `DeregisterIoResource{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:166 | `Reactor::set_waker_begin_action` | ghost-log | ghost log gains `SetWaker{result:None}` recording rid/interest/waker; exec fields unchanged |
+| src/reactor/ext.rs:178 | `Reactor::set_waker_end_action` | ghost-log | ghost log gains `SetWaker{result:Ok(())}`; exec fields unchanged |
+| src/reactor/ext.rs:192 | `Reactor::register_timer_begin_action` | ghost-log | ghost log gains `RegisterTimer{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:205 | `Reactor::register_timer_end_action` | ghost-log | ghost log gains `RegisterTimer{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:218 | `Reactor::deregister_timer_begin_action` | ghost-log | ghost log gains `DeregisterTimer{result:true}`; exec fields unchanged |
+| src/reactor/ext.rs:233 | `Reactor::log_get_current_time_action` | ghost-log | ghost log gains `GetCurrentTime{t@}`; exec fields unchanged (clock monotonicity is PROVEN in the verified wrapper `get_current_time_action`, which clamps the raw reading to `wheel.elapsed`) |
 | src/reactor/ext.rs (publish_cached_now) | `Reactor::publish_cached_now` | raw | no ensures — writes the park-cycle clock observation into the trusted handle layer's thread-local cache (`handle.rs CACHED_NOW`), entirely outside verified state; readers (Sleep::poll) treat it as an optimization hint with a real-clock fallback, and a stale value can only delay a completion decision, never produce an early fire |
-| src/reactor/ext.rs:199 | `Reactor::register_io_source_action` | ghost-log | log gains matching `Outbound::RegisterIoResource{result}`; source/fields unchanged (real effect: mio `registry.register` on the verified rid→token codec; mio faithfulness is the residual trust) |
-| src/reactor/ext.rs:225 | `Reactor::deregister_io_source_action` | ghost-log | log gains matching `Outbound::DeregisterIoResource{result}`; source/fields unchanged (real effect: mio `registry.deregister`) |
-| src/reactor/ext.rs:248 | `Reactor::poll_events_action` | ghost-log | log gains `Outbound::PollEvents` whose logged count equals the returned event vec length; fields unchanged (real effect: mio poll — tokens returned faithfully and readable/writable flags matching real readiness are the residual trust) |
-| src/reactor/ext.rs:279 | `Reactor::io_event_ready_action` | ghost-log | ghost log gains `IoEventReady{event@}`; exec fields unchanged |
-| src/reactor/ext.rs:319 | `Reactor::wake_task_action` | ghost-log | log gains `WakeTask{waker@, source_rid@}`; fields unchanged (real effect: `wake_by_ref`) |
+| src/reactor/ext.rs:251 | `Reactor::register_io_source_action` | ghost-log | log gains matching `Outbound::RegisterIoResource{result}`; source/fields unchanged (real effect: mio `registry.register` on the verified rid→token codec; mio faithfulness is the residual trust) |
+| src/reactor/ext.rs:277 | `Reactor::deregister_io_source_action` | ghost-log | log gains matching `Outbound::DeregisterIoResource{result}`; source/fields unchanged (real effect: mio `registry.deregister`) |
+| src/reactor/ext.rs:300 | `Reactor::poll_events_action` | ghost-log | log gains `Outbound::PollEvents` whose logged count equals the returned event vec length; fields unchanged (real effect: mio poll — tokens returned faithfully and readable/writable flags matching real readiness are the residual trust) |
+| src/reactor/ext.rs:331 | `Reactor::io_event_ready_action` | ghost-log | ghost log gains `IoEventReady{event@}`; exec fields unchanged |
+| src/reactor/ext.rs:382 | `Reactor::wake_task_action` | ghost-log | log gains `WakeTask{waker@, source_rid@}`; fields unchanged (real effect: `wake_by_ref`) |
 | src/types/waker.rs:7 | `struct Waker` | view | opaque wrapper of `std::task::Waker` |
 | src/types/waker.rs:15 | `Waker::view` | view | uninterpreted spec view onto `WakerView` |
 | src/types/waker.rs:22 | `Waker::clone` | semantic | clone views equal to original (`result@ == self@`) |
@@ -330,25 +329,25 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/types/duration.rs:45 | `Duration::into_reactor` | raw | no ensures (opaque effect) |
 | src/types/duration.rs:53 | `From<ReactorDuration>` | raw | no ensures (opaque effect) |
 | src/types/duration.rs:61 | `From<Duration> for ReactorDuration` | raw | no ensures (opaque effect) |
-| src/executor/ext.rs:47 | `Executor::tick_begin_action` | ghost-log | ghost log gains `Tick{result:None}`; local_queue/task_slab/ledger unchanged (macro-generated) |
-| src/executor/ext.rs:52 | `Executor::tick_end_action` | ghost-log | ghost log gains `Tick{result:Some(())}`; local_queue/task_slab/ledger unchanged (macro-generated) |
-| src/executor/ext.rs:59 | `Executor::log_poll_task_action` | ghost-log | ghost log gains `PollTask{task_id, task@, result}`; local_queue/task_slab/ledger unchanged (macro-generated) |
-| src/executor/ext.rs:70 | `Executor::log_pop_injection_action` | ghost-log | ghost log gains `PopInjection{task@}` recording exactly what the verified layer decided; state unchanged (macro-generated) |
-| src/executor/ext.rs:79 | `Executor::log_drain_task_wake_action` | ghost-log | ghost log gains one `Drain{TaskWake, ids@}` recording exactly the ids the verified layer kept; state unchanged (macro-generated) |
-| src/executor/ext.rs:87 | `Executor::log_drain_reactor_wake_action` | ghost-log | ghost log gains one `Drain{ReactorWake, ids@}`; state unchanged (macro-generated) |
-| src/executor/ext.rs:95 | `Executor::log_drain_deferred_action` | ghost-log | ghost log gains one `Drain{Deferred, ids@}`; state unchanged (macro-generated) |
-| src/executor/ext.rs:131 | `Executor::poll_future_raw` | raw | shape-only ensures (Some task ⇒ task handed back and result Ready/Pending; None ⇒ Pending) — free function with NO executor access runs the user future; residual trust: user wake/spawn effects route through TLS. The body calls the plain-Rust `poll_task_contained`, which installs the task, polls it under `catch_unwind` and reports a poll that unwinds as Ready, so no unwind reaches the verified tick. The old `poll_task_action` contract is reassembled in verified code |
-| src/executor/ext.rs:175 | `Executor::poll_task_invalid_action` | ghost-log | ghost log gains `PollTask{result: Invalid}`; state unchanged |
-| src/executor/ext.rs:193 | `Executor::try_recv_raw` | raw | no ensures — plain mpsc `try_recv`, no executor access, no claims about what comes out; TID freshness is enforced by a verified ledger check in `pop_injection_action` |
-| src/executor/ext.rs:262 | `Executor::park_action` | ghost-log | log gains `Park`; local_queue/task_slab/ledger unchanged (real effect: reactor flush + park; the park bound is 0 when the executor has ready work, else the wrapper's idle bound: 100 ms, or the caller's `Runtime::tick_with_timeout` bound. The verified reactor park accepts any bound and caps it at the next timer deadline) |
-| src/executor/ext.rs:282 | `Executor::reset_and_drain_cross_thread_action` | raw | no ensures (opaque effect) — resets interrupt, drains cross-thread queue into TLS |
-| src/executor/ext.rs:289 | `Executor::has_deferred_action` | raw | no ensures (opaque effect) — TLS queue probe |
-| src/executor/ext.rs:295 | `Executor::has_reactor_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
-| src/executor/ext.rs:301 | `Executor::has_task_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
-| src/executor/ext.rs:307 | `Executor::take_block_on_yielded_action` | raw | no ensures (opaque effect) — takes TLS yield flag |
-| src/executor/ext.rs:317 | `Executor::take_task_ready_from_tls` | raw | no ensures — hands over the TLS task-wake ids as a plain Vec, no claims; fabricated TIDs are filtered by the verified ledger layer (`filter_and_enqueue`), which PROVES the old drain ensures |
-| src/executor/ext.rs:324 | `Executor::take_reactor_ready_from_tls` | raw | no ensures — TLS reactor-wake ids as a plain Vec, no claims (verified filter downstream) |
-| src/executor/ext.rs:330 | `Executor::take_deferred_from_tls` | raw | no ensures — TLS deferred ids as a plain Vec, no claims (verified filter downstream) |
+| src/executor/ext.rs:35 | `Executor::tick_begin_action` | ghost-log | ghost log gains `Tick{result:None}`; local_queue/task_slab/ledger unchanged |
+| src/executor/ext.rs:45 | `Executor::tick_end_action` | ghost-log | ghost log gains `Tick{result:Some(())}`; local_queue/task_slab/ledger unchanged |
+| src/executor/ext.rs:57 | `Executor::log_poll_task_action` | ghost-log | ghost log gains `PollTask{task_id, task@, result}`; local_queue/task_slab/ledger unchanged |
+| src/executor/ext.rs:73 | `Executor::log_pop_injection_action` | ghost-log | ghost log gains `PopInjection{task@}` recording exactly what the verified layer decided; state unchanged |
+| src/executor/ext.rs:87 | `Executor::log_drain_task_wake_action` | ghost-log | ghost log gains one `Drain{TaskWake, ids@}` recording exactly the ids the verified layer kept; state unchanged |
+| src/executor/ext.rs:100 | `Executor::log_drain_reactor_wake_action` | ghost-log | ghost log gains one `Drain{ReactorWake, ids@}`; state unchanged |
+| src/executor/ext.rs:113 | `Executor::log_drain_deferred_action` | ghost-log | ghost log gains one `Drain{Deferred, ids@}`; state unchanged |
+| src/executor/ext.rs:157 | `Executor::poll_future_raw` | raw | shape-only ensures (Some task ⇒ task handed back and result Ready/Pending; None ⇒ Pending) — free function with NO executor access runs the user future; residual trust: user wake/spawn effects route through TLS. The body calls the plain-Rust `poll_task_contained`, which installs the task, polls it under `catch_unwind` and reports a poll that unwinds as Ready, so no unwind reaches the verified tick. The old `poll_task_action` contract is reassembled in verified code |
+| src/executor/ext.rs:201 | `Executor::poll_task_invalid_action` | ghost-log | ghost log gains `PollTask{result: Invalid}`; state unchanged |
+| src/executor/ext.rs:219 | `Executor::try_recv_raw` | raw | no ensures — plain mpsc `try_recv`, no executor access, no claims about what comes out; TID freshness is enforced by a verified ledger check in `pop_injection_action` |
+| src/executor/ext.rs:288 | `Executor::park_action` | ghost-log | log gains `Park`; local_queue/task_slab/ledger unchanged (real effect: reactor flush + park; the park bound is 0 when the executor has ready work, else the wrapper's idle bound: 100 ms, or the caller's `Runtime::tick_with_timeout` bound. The verified reactor park accepts any bound and caps it at the next timer deadline) |
+| src/executor/ext.rs:308 | `Executor::reset_and_drain_cross_thread_action` | raw | no ensures (opaque effect) — resets interrupt, drains cross-thread queue into TLS |
+| src/executor/ext.rs:315 | `Executor::has_deferred_action` | raw | no ensures (opaque effect) — TLS queue probe |
+| src/executor/ext.rs:321 | `Executor::has_reactor_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
+| src/executor/ext.rs:327 | `Executor::has_task_ready_action` | raw | no ensures (opaque effect) — TLS queue probe |
+| src/executor/ext.rs:333 | `Executor::take_block_on_yielded_action` | raw | no ensures (opaque effect) — takes TLS yield flag |
+| src/executor/ext.rs:343 | `Executor::take_task_ready_from_tls` | raw | no ensures — hands over the TLS task-wake ids as a plain Vec, no claims; fabricated TIDs are filtered by the verified ledger layer (`filter_and_enqueue`), which PROVES the old drain ensures |
+| src/executor/ext.rs:350 | `Executor::take_reactor_ready_from_tls` | raw | no ensures — TLS reactor-wake ids as a plain Vec, no claims (verified filter downstream) |
+| src/executor/ext.rs:356 | `Executor::take_deferred_from_tls` | raw | no ensures — TLS deferred ids as a plain Vec, no claims (verified filter downstream) |
 | src/executor/poll_task.rs:11 | `clear_task_notified` | raw | no ensures (opaque effect) — clears TLS notified flag |
 | src/executor/enter.rs:8 | `Executor::enter` | raw | no ensures (opaque effect) — installs reactor TLS context |
 
@@ -398,7 +397,7 @@ dedicated "lion-utility (glue layer)" section under §4 below.
 **lion-reactor (56).** The OS boundary itself: mio epoll registration/polling
 and handle creation (`mio_setup`), the raw clock read (`Instant::now` — the
 monotonicity the timer proofs use is established by a verified clamp, not
-trusted), `std::task::Waker` cloning/waking, plus the macro-generated ghost-log
+trusted), `std::task::Waker` cloning/waking, plus the ghost-log
 action family (each trusted to append exactly one history event and touch
 nothing else). `Reactor::new` is verified: only the mio handles are opaque.
 
@@ -406,7 +405,7 @@ nothing else). `Reactor::new` is verified: only the mio handles are opaque.
 wake queues and the mpsc injection channel (`try_recv_raw`,
 `take_*_from_tls`), the single point where arbitrary user code runs
 (`poll_future_raw`, a free function with no executor access), the
-macro-generated log-action family, and a semantic `VecDeque` FIFO model the
+ghost-log action family, and a semantic `VecDeque` FIFO model the
 local-queue liveness derivation rides on. TID freshness and drain
 append/injected facts are verified in the wrapping layer (ledger + filters),
 not trusted.
