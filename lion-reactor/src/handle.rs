@@ -23,6 +23,13 @@ pub fn store_cached_now(now_ms: u64) {
   CACHED_NOW.with(|c| c.set(Some(now_ms)));
 }
 
+// Forgets the cached clock when the reactor that published it leaves this
+// thread (its ReactorGuard drops), so a later reactor starts from the real
+// clock.
+pub(crate) fn clear_cached_now() {
+  let _ = CACHED_NOW.try_with(|c| c.set(None));
+}
+
 #[derive(Copy, Clone)]
 pub struct ReactorHandle;
 

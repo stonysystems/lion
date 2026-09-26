@@ -8,18 +8,32 @@ thread_local! {
 }
 
 impl Reactor {
+  // Installs this reactor as the thread's current one. Entering while another
+  // reactor is current replaces it; callers that must not (lion-executor's
+  // Runtime) check `is_entered_on_current_thread` first.
   pub fn enter(&mut self) -> ReactorGuard {
+    let ptr = self as *mut Reactor;
     CURRENT_REACTOR.with(|r| {
-      r.set(Some(self as *mut Reactor));
+      r.set(Some(ptr));
     });
-    ReactorGuard { _private: () }
+    ReactorGuard { reactor: ptr as usize }
+  }
+
+  /// Whether a reactor is entered on this thread.
+  pub fn is_entered_on_current_thread() -> bool {
+    CURRENT_REACTOR.try_with(|r| r.get().is_some()).unwrap_or(false)
   }
 }
 
+// Clears only what this guard installed: if a later `enter` replaced this
+// reactor, the newer entry stays.
 impl Drop for ReactorGuard {
   fn drop(&mut self) {
-    CURRENT_REACTOR.with(|r| {
-      r.set(None);
+    let _ = CURRENT_REACTOR.try_with(|r| {
+      if r.get().map(|p| p as usize) == Some(self.reactor) {
+        r.set(None);
+        crate::handle::clear_cached_now();
+      }
     });
   }
 }

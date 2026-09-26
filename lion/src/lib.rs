@@ -135,8 +135,17 @@ pub mod runtime {
       Handle
     }
 
+    /// Runs `future` to completion on a fresh runtime on this thread.
+    ///
+    /// # Panics
+    ///
+    /// If this thread already runs a Lion runtime (a thread runs at most one;
+    /// like tokio, a runtime cannot be started from within one). Call it
+    /// inside [`crate::task::block_in_place`], which runs on a fresh thread.
     pub fn block_on<F: core::future::Future>(&self, future: F) -> F::Output {
-      Runtime::new().unwrap().block_on(future)
+      Runtime::new()
+        .expect("lion::runtime::Handle::block_on: this thread already runs a Lion runtime; call it inside lion::task::block_in_place")
+        .block_on(future)
     }
   }
 

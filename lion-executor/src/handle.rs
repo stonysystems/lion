@@ -26,6 +26,12 @@ impl InnerHandle {
     }
   }
 
+  // Identity of the runtime this handle belongs to (its task-id counter is
+  // allocated once per runtime and shared by every clone of the handle).
+  pub(crate) fn runtime_id(&self) -> usize {
+    Arc::as_ptr(&self.task_id_counter) as usize
+  }
+
   pub fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) -> JoinHandle<T> {
     let task_id = TaskId(self.task_id_counter.fetch_add(1, Ordering::SeqCst));
     let (handle, sender) = JoinHandle::new();

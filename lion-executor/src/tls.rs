@@ -219,6 +219,34 @@ pub(crate) fn reset_interrupt() {
   });
 }
 
-pub(crate) fn clear_cross_thread_ctx() {
-  CROSS_THREAD_CTX.with(|c| *c.borrow_mut() = None);
+pub(crate) fn has_cross_thread_ctx() -> bool {
+  CROSS_THREAD_CTX.try_with(|c| c.borrow().is_some()).unwrap_or(true)
+}
+
+// Runtime drop: if this thread's cross-thread context is still `queue`'s (the
+// dropping runtime's), clear it and reset the per-thread executor state that
+// runtime left behind (queued wake ids, the notified set, the current task and
+// the block_on yield flag), so a later runtime on this thread starts clean.
+// Task ids restart at 1 in every runtime, so a stale id would otherwise alias
+// a new task. Anything else is another runtime's state and is left alone.
+pub(crate) fn release_runtime_thread_state(queue: &Arc<CrossThreadQueue>) {
+  let ours = CROSS_THREAD_CTX
+    .try_with(|c| {
+      let mut c = c.borrow_mut();
+      let ours = c.as_ref().is_some_and(|(q, _, _)| Arc::ptr_eq(q, queue));
+      if ours {
+        *c = None;
+      }
+      ours
+    })
+    .unwrap_or(false);
+  if !ours {
+    return;
+  }
+  let _ = REACTOR_READY_QUEUE.try_with(|q| q.borrow_mut().clear());
+  let _ = TASK_READY_QUEUE.try_with(|q| q.borrow_mut().clear());
+  let _ = DEFER_QUEUE.try_with(|q| q.borrow_mut().clear());
+  let _ = TASK_NOTIFIED.try_with(|n| n.borrow_mut().clear());
+  let _ = CURRENT_TASK.try_with(|c| c.set(None));
+  let _ = BLOCK_ON_YIELDED.try_with(|c| c.set(false));
 }

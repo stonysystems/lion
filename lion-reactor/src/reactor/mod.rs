@@ -28,7 +28,9 @@ pub struct Reactor {
 }
 
 pub struct ReactorGuard {
-  pub _private: (),
+  // Address of the reactor this guard entered (identity only, never
+  // dereferenced): drop clears the thread's entry only if it is still this one.
+  pub(crate) reactor: usize,
 }
 
 }

@@ -22,6 +22,7 @@ use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll};
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::marker::PhantomData;
 use lion_reactor::Reactor;
 use config::RuntimeConfig;
@@ -62,7 +63,10 @@ thread_local! {
 
 /// A single-threaded Lion runtime. It is bound to the thread that creates it
 /// (it is neither `Send` nor `Sync`): that thread drives it, and `spawn_local`
-/// tasks live only there.
+/// tasks live only there. A thread runs at most one Lion runtime at a time:
+/// `Runtime::new` on a thread whose runtime is still alive fails with
+/// `ErrorKind::AlreadyExists` (use another thread, e.g. `block_in_place` in the
+/// `lion` facade). Once the runtime is dropped, the thread may create another.
 ///
 /// ```compile_fail
 /// fn assert_send<T: Send>() {}
@@ -74,9 +78,43 @@ pub struct Runtime {
   executor: RefCell<Box<Executor>>,
   handle: ExecutorHandle,
   _guard: ReactorGuard,
+  // Last: releases this runtime's thread-local registrations after everything
+  // above is gone, so task destructors that spawn or wake still find it.
+  _thread: ThreadBinding,
   // !Send: the executor may hold spawn_local tasks, which must be dropped on
   // this thread (see types/boxed_future.rs, OwnerThreadOnly).
   _not_send: PhantomData<*const ()>,
+}
+
+// What a Runtime installed in its thread's TLS, released on drop. Each entry is
+// cleared only if it is still this runtime's; the per-thread wake queues are
+// reset only if the cross-thread context was, i.e. if this was the thread's
+// runtime. Uses try_with throughout: a Runtime kept in a thread_local may drop
+// while the thread's other TLS is being destroyed.
+struct ThreadBinding {
+  runtime_id: usize,
+  cross_thread_queue: Arc<tls::CrossThreadQueue>,
+}
+
+impl Drop for ThreadBinding {
+  fn drop(&mut self) {
+    let _ = CURRENT_HANDLE.try_with(|h| {
+      if let Ok(mut h) = h.try_borrow_mut() {
+        if h.as_ref().is_some_and(|x| x.inner.runtime_id() == self.runtime_id) {
+          *h = None;
+        }
+      }
+    });
+    tls::release_runtime_thread_state(&self.cross_thread_queue);
+  }
+}
+
+// Whether this thread already has a live Lion runtime (or a bare lion-reactor
+// Reactor entered). A thread whose TLS is being torn down counts as busy.
+fn runtime_is_live_on_this_thread() -> bool {
+  CURRENT_HANDLE.try_with(|h| h.borrow().is_some()).unwrap_or(true)
+    || tls::has_cross_thread_ctx()
+    || Reactor::is_entered_on_current_thread()
 }
 
 impl Runtime {
@@ -85,6 +123,14 @@ impl Runtime {
   }
 
   fn with_config(config: RuntimeConfig) -> std::io::Result<Self> {
+  // Before anything is created or installed: a refused Runtime::new leaves
+  // this thread's runtime, and its TLS, untouched.
+  if runtime_is_live_on_this_thread() {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::AlreadyExists,
+      "a Lion runtime is already running on this thread; runtimes do not nest (run the new one on another thread)",
+    ));
+  }
   let (reactor, interrupt_handle) = match Reactor::new() {
     lion_reactor::IoResult::Ok(r) => r,
     lion_reactor::IoResult::Err(_) => {
@@ -97,7 +143,7 @@ impl Runtime {
 
   let cross_thread_queue = tls::CrossThreadQueue::new();
   tls::set_cross_thread_ctx(
-    cross_thread_queue,
+    cross_thread_queue.clone(),
     interrupt_handle.clone(),
     std::thread::current().id(),
   );
@@ -111,11 +157,13 @@ impl Runtime {
   CURRENT_HANDLE.with(|h| {
     *h.borrow_mut() = Some(handle.clone());
   });
+  let thread = ThreadBinding { runtime_id: handle.inner.runtime_id(), cross_thread_queue };
 
   Ok(Runtime {
     executor: RefCell::new(executor),
     handle,
     _guard: guard,
+    _thread: thread,
     _not_send: PhantomData,
   })
   }
@@ -141,15 +189,6 @@ impl Runtime {
       let mut exec = self.executor.borrow_mut();
       exec.tick();
     }
-  }
-}
-
-impl Drop for Runtime {
-  fn drop(&mut self) {
-  CURRENT_HANDLE.with(|h| {
-    *h.borrow_mut() = None;
-  });
-  tls::clear_cross_thread_ctx();
   }
 }
 
