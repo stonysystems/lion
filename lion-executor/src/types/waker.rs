@@ -1,8 +1,7 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 
 use std::sync::Arc;
-use std::sync::OnceLock;
-use std::task::{RawWaker, RawWakerVTable, Wake, Waker};
+use std::task::{Wake, Waker};
 use super::TaskId;
 use crate::tls;
 use vstd::prelude::*;
@@ -17,88 +16,18 @@ pub enum WakeSource {
 
 } // end verus!
 
-static GLOBAL_CTX: OnceLock<(Arc<tls::CrossThreadQueue>, lion_reactor::InterruptHandle, std::thread::ThreadId)> = OnceLock::new();
-
-pub(crate) fn init_global_ctx(
-  queue: Arc<tls::CrossThreadQueue>,
-  interrupt: lion_reactor::InterruptHandle,
-  thread_id: std::thread::ThreadId,
-) {
-  GLOBAL_CTX.set((queue, interrupt, thread_id)).ok();
-}
-
-static TASK_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-  task_raw_clone,
-  task_raw_wake,
-  task_raw_wake_by_ref,
-  raw_drop,
-);
-
-unsafe fn task_raw_clone(data: *const ()) -> RawWaker {
-  RawWaker::new(data, &TASK_WAKER_VTABLE)
-}
-
-unsafe fn task_raw_wake(data: *const ()) {
-  task_raw_wake_impl(data);
-}
-
-unsafe fn task_raw_wake_by_ref(data: *const ()) {
-  task_raw_wake_impl(data);
-}
-
-unsafe fn raw_drop(_data: *const ()) {}
-
-unsafe fn task_raw_wake_impl(data: *const ()) {
-  let task_id = TaskId(data as u64);
-  if let Some((_, _, executor_tid)) = GLOBAL_CTX.get() {
-    if std::thread::current().id() == *executor_tid {
-      tls::push_task_ready(task_id);
-      return;
-    }
-    let (queue, interrupt, _) = GLOBAL_CTX.get().unwrap();
-    queue.push(task_id);
-    interrupt.wake();
-  }
-}
-
-pub(crate) fn create_raw_task_waker(task_id: TaskId) -> Waker {
-  unsafe {
-    let data = task_id.0 as *const ();
-    Waker::from_raw(RawWaker::new(data, &TASK_WAKER_VTABLE))
-  }
-}
-
-static REACTOR_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-  reactor_raw_clone,
-  reactor_raw_wake,
-  reactor_raw_wake_by_ref,
-  raw_drop,
-);
-
-unsafe fn reactor_raw_clone(data: *const ()) -> RawWaker {
-  RawWaker::new(data, &REACTOR_WAKER_VTABLE)
-}
-
-unsafe fn reactor_raw_wake(data: *const ()) {
-  reactor_raw_wake_impl(data);
-}
-
-unsafe fn reactor_raw_wake_by_ref(data: *const ()) {
-  reactor_raw_wake_impl(data);
-}
-
-unsafe fn reactor_raw_wake_impl(data: *const ()) {
-  let task_id = TaskId(data as u64);
-  tls::push_reactor_ready(task_id);
-}
-
+// The waker the reactor stores for a task's io wait (lion-utility's TCP and UDP
+// glue creates it while the task is being polled). It is the task's
+// ExecutorWaker with source Reactor: woken on the owner thread, which is where
+// the reactor wakes it, it pushes the task onto the reactor-ready queue, as the
+// former hand-written vtable waker did. Woken on any other thread it goes
+// through the cross-thread queue and interrupts the park; the vtable waker
+// pushed onto the calling thread's own TLS queue instead, where no executor
+// looks.
 pub fn create_reactor_waker_for_current() -> Waker {
   let task_id = tls::get_current_task()
     .expect("create_reactor_waker_for_current called outside task context");
-  unsafe {
-    let data = task_id.0 as *const ();
-    Waker::from_raw(RawWaker::new(data, &REACTOR_WAKER_VTABLE))
-  }
+  create_waker(task_id, WakeSource::Reactor, false)
 }
 
 pub(crate) fn create_waker(task_id: TaskId, source: WakeSource, defer: bool) -> Waker {
@@ -114,9 +43,6 @@ pub struct ExecutorWaker {
   interrupt: lion_reactor::InterruptHandle,
   executor_thread_id: std::thread::ThreadId,
 }
-
-unsafe impl Send for ExecutorWaker {}
-unsafe impl Sync for ExecutorWaker {}
 
 impl ExecutorWaker {
   pub(crate) fn new(

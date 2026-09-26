@@ -67,11 +67,6 @@ impl Runtime {
   };
 
   let cross_thread_queue = tls::CrossThreadQueue::new();
-  types::init_global_ctx(
-    cross_thread_queue.clone(),
-    interrupt_handle.clone(),
-    std::thread::current().id(),
-  );
   tls::set_cross_thread_ctx(
     cross_thread_queue,
     interrupt_handle.clone(),

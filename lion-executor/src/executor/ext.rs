@@ -1,6 +1,6 @@
 use std::task::Context;
 use crate::tls;
-use crate::types::{create_waker, create_raw_task_waker, Duration, Instant, PollResult, Task, TaskId, TID, TaskView, WakeSource};
+use crate::types::{create_waker, Duration, Instant, PollResult, Task, TaskId, TID, TaskView, WakeSource};
 use crate::spec::log::*;
 use crate::proof::invariants::*;
 use crate::proof::helpers::*;

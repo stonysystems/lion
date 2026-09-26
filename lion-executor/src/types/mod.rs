@@ -14,7 +14,7 @@ pub(crate) use task_id::TaskId;
 pub(crate) use boxed_future::BoxedFuture;
 pub(crate) use task::Task;
 pub(crate) use lion_executor_spec::types::TaskView;
-pub(crate) use waker::{create_waker, create_raw_task_waker, init_global_ctx, WakeSource};
+pub(crate) use waker::{create_waker, WakeSource};
 pub(crate) use reactor::{Reactor, ReactorGuard};
 pub use join_handle::JoinHandle;
 pub use join_handle::JoinSender;

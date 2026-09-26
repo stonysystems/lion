@@ -57,10 +57,12 @@ theorems:
    faithfully; readable/writable flags reflect real readiness — the rid<->token
    codec itself is verified), `register/deregister_io_source_action`,
    `Instant::now`, `Reactor::mio_setup` (handle creation, no semantic ensures).
-3. **`Executor::poll_future_raw` + the waker vtable** — user future code runs behind
+3. **`Executor::poll_future_raw` + the task wakers** — user future code runs behind
    a free function that cannot touch the executor by construction; the remaining
    trust is that user wake/spawn effects route through the TLS side-channels the
-   drain path consumes, and that cloned wakers view-match (`waker-vtable` items).
+   drain path consumes (every executor waker is an `Arc<ExecutorWaker>` behind
+   std `Wake`; no hand-written `RawWakerVTable` remains), and that cloned reactor
+   wakers view-match (lion-reactor `Waker::clone`).
 4. **TLS wake plumbing raw takers** — `take_{task,reactor,deferred}_*_from_tls` /
    `try_recv_raw` hand over a plain Vec/Option with NO claims; fabricated TIDs are
    filtered by the verified ledger layer, lost wakes remain covered by the
@@ -397,6 +399,19 @@ macro-generated log-action family, and a semantic `VecDeque` FIFO model the
 local-queue liveness derivation rides on. TID freshness and drain
 append/injected facts are verified in the wrapping layer (ledger + filters),
 not trusted.
+
+### lion-executor runtime glue (outside `verus!`)
+
+The public runtime surface — `Runtime`, `ExecutorHandle`, the task wrapper,
+`JoinHandle`, the wakers and the TLS queues — is plain Rust outside every
+`verus!` block. Verus never sees it, so it is trusted as a whole, like
+lion-utility's glue; it reaches verified code only through the executor's
+`external_body` rows above. Its trusted items:
+
+| file | item | what is trusted |
+|---|---|---|
+| src/types/waker.rs | `ExecutorWaker` (`Arc` + std `Wake`) | on the owner thread a wake pushes the task id onto the TLS queue of its source (task, reactor or deferred); on any other thread it pushes onto the runtime's cross-thread queue and interrupts the park. `Send`/`Sync` are derived by the compiler: the former `unsafe impl Send/Sync` are gone |
+| src/types/waker.rs | `create_reactor_waker_for_current` | the current task's `ExecutorWaker` with source Reactor. It replaced a `RawWakerVTable` waker that pushed onto the *calling* thread's TLS queue, which lost a wake from any other thread. Removed with it: the unused task vtable waker (`create_raw_task_waker`, `TASK_WAKER_VTABLE`) and the process-global `GLOBAL_CTX` that only that waker read |
 
 **lion-timer-wheel (7).** A trusted framing layer over `Vec` slot mutations —
 each ensures pins the exact single-slot effect plus the exact `level_counts`

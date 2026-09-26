@@ -178,7 +178,7 @@ Every claim above is machine-checked *modulo* an explicitly trusted base, invent
 per-item in [`TCB_and_limitations.md`](TCB_and_limitations.md):
 
 - **`external_body` boundary functions** (118 across the six verified crates — OS/syscall
-  wrappers, waker vtables, low-level slot operations) whose postconditions are trusted,
+  wrappers, waker plumbing, low-level slot operations) whose postconditions are trusted,
   not verified — plus two fully-unchecked `#[verifier::external]` items;
 - **the Verus toolchain and its SMT solver** (Verus pinned by `setup.sh`, bundling Z3 4.12.5; see `verus.config`),
   including vstd's specification of std `HashMap`, which the id-keyed maps call directly;
