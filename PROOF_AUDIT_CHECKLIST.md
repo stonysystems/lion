@@ -41,7 +41,7 @@
 - [ ] Inventory `#[verifier::external]` / `#[verifier::external_fn_specification]` /
       `assume_specification`: the parts that bypass verification entirely.
 - [ ] Inventory **file-level `verus::trusted` markers** (`grep -rln "verus::trusted"`,
-      currently 27 files): confirm one by one that each file's content really belongs
+      currently 31 files): confirm one by one that each file's content really belongs
       to its declared trust category (utility whole-module glue / type wrappers / OS
       boundary), that it contains **no verus!{} proof code counted as verified**, and
       no undisclosed executable logic.

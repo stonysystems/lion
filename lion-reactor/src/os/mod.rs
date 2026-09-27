@@ -21,8 +21,8 @@
 //! The reactor keeps a readiness flag per io resource and direction (read,
 //! write). A flag is set when a wait reports an event for the resource and is
 //! cleared only by the resource's owner after an operation returned
-//! `WouldBlock`. The reactor therefore needs **edge-triggered**
-//! reports, exactly epoll's `EPOLLET` as mio uses it:
+//! `WouldBlock` (see [`crate::async_fd`]). The reactor therefore needs
+//! **edge-triggered** reports, exactly epoll's `EPOLLET` as mio uses it:
 //!
 //! * **Registration.** `register(fd, token, interest)` starts reporting `fd`
 //!   under `token`, for readability if `interest.readable`, for writability if

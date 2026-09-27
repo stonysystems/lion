@@ -25,6 +25,8 @@ mio = ["lion-reactor/mio", "lion-executor/mio"]
 [dev-dependencies]
 # The in-process mock OS backend (lion_reactor::os::mock) for backend tests.
 lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false, features = ["test-backend"] }
+# mio::unix::pipe for the AsyncFd tests.
+mio = { version = "1.0", features = ["os-ext"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }

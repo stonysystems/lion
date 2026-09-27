@@ -19,7 +19,9 @@ pub mod invariants;
 pub mod proof;
 pub mod alloc_verified;
 pub mod os;
+pub mod async_fd;
 
+pub use async_fd::{AsyncFd, AsyncFdReadyGuard};
 pub use handle::ReactorHandle;
 pub use os::{OsBackend, OsEvent, OsInterrupt, RawFd};
 #[cfg(feature = "mio")]

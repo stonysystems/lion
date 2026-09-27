@@ -7,7 +7,9 @@ const WRITABLE: u8 = 0x02;
 
 // Per-resource readiness flags, keyed by rid. An entry exists only between
 // `init_readiness` (after a successful io registration) and `remove_readiness`
-// (on deregistration), so the table holds one byte per LIVE io resource. Rids
+// (on deregistration) or `clear_all` (when the reactor leaves the thread), so
+// the table holds one byte per LIVE io resource of the current reactor. The
+// protocol these flags implement is written down in async_fd.rs. Rids
 // are never reused, so an entry indexed by rid in a window would instead grow
 // with every rid ever allocated. `mark_*` / `clear_*` touch existing entries
 // only: a stale event for a deregistered rid is a no-op, and a rid that was
@@ -20,6 +22,22 @@ pub fn init_readiness(resource_id: ResourceId) {
   IO_READINESS.with(|r| {
     r.borrow_mut().insert(resource_id.0, READABLE | WRITABLE);
   });
+}
+
+// Drops every entry: the reactor that owned these rids has left the thread
+// (ReactorGuard's drop).
+pub(crate) fn clear_all() {
+  let _ = IO_READINESS.try_with(|r| {
+    if let Ok(mut r) = r.try_borrow_mut() {
+      r.clear();
+    }
+  });
+}
+
+/// Number of live readiness entries on this thread (one per registered io
+/// resource that initialised its readiness). For tests of resource cleanup.
+pub fn live_entries() -> usize {
+  IO_READINESS.with(|r| r.borrow().len())
 }
 
 pub fn remove_readiness(resource_id: ResourceId) {
