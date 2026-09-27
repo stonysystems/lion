@@ -48,9 +48,9 @@ impl TcpStream {
     Self::from_mio(mio::net::TcpStream::from_std(stream))
   }
 
-  pub(crate) fn from_mio(mut stream: mio::net::TcpStream) -> Result<TcpStream> {
+  pub(crate) fn from_mio(stream: mio::net::TcpStream) -> Result<TcpStream> {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut stream as &mut dyn mio::event::Source);
+    let mut source = Source::new(stream.as_raw_fd());
     let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE_WRITABLE) {
       IoResult::Ok(id) => id,
       IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),
@@ -232,7 +232,7 @@ impl AsyncWrite for OwnedWriteHalf {
 impl Drop for TcpStream {
   fn drop(&mut self) {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut self.inner as &mut dyn mio::event::Source);
+    let mut source = Source::new(self.inner.as_raw_fd());
     let _ = handle.deregister_io_resource(self.resource_id, &mut source);
     self.kernel.drop_step();
   }
@@ -247,9 +247,9 @@ impl Connect {
     Self::new(mio_stream)
   }
 
-  fn new(mut mio_stream: mio::net::TcpStream) -> Result<Self> {
+  fn new(mio_stream: mio::net::TcpStream) -> Result<Self> {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut mio_stream as &mut dyn mio::event::Source);
+    let mut source = Source::new(mio_stream.as_raw_fd());
     let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE_WRITABLE) {
       IoResult::Ok(id) => id,
       IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),

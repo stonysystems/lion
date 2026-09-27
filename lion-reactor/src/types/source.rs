@@ -1,14 +1,17 @@
 use vstd::prelude::*;
+use crate::os::RawFd;
 use crate::spec::types::SourceView;
 
 verus! {
 
+// An io resource as the OS knows it: a raw file descriptor, which the caller
+// keeps open while it is registered.
 #[verifier::external_body]
-pub struct Source<'a> {
-  pub(crate) inner: &'a mut dyn mio::event::Source,
+pub struct Source {
+  pub(crate) fd: RawFd,
 }
 
-impl View for Source<'_> {
+impl View for Source {
   type V = SourceView;
 
   #[verifier::external_body]
@@ -19,8 +22,12 @@ impl View for Source<'_> {
 
 } // end verus!
 
-impl<'a> Source<'a> {
-  pub fn new(source: &'a mut dyn mio::event::Source) -> Self {
-    Source { inner: source }
+impl Source {
+  pub fn new(fd: RawFd) -> Self {
+    Source { fd }
+  }
+
+  pub fn fd(&self) -> RawFd {
+    self.fd
   }
 }

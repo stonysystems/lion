@@ -24,7 +24,7 @@ use std::task::{Context, Poll};
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::marker::PhantomData;
-use lion_reactor::Reactor;
+use lion_reactor::{InterruptHandle, OsBackend, Reactor};
 use config::RuntimeConfig;
 use handle::InnerHandle;
 use collections::mpsc_queue;
@@ -118,11 +118,14 @@ fn runtime_is_live_on_this_thread() -> bool {
 }
 
 impl Runtime {
+  /// A runtime over Lion's default OS backend (mio). Without the `mio`
+  /// feature this fails with `ErrorKind::Unsupported`: give the runtime a
+  /// backend with [`RuntimeBuilder::os_backend`].
   pub fn new() -> std::io::Result<Self> {
   RuntimeBuilder::new().build()
   }
 
-  fn with_config(config: RuntimeConfig) -> std::io::Result<Self> {
+  fn with_config(config: RuntimeConfig, backend: Option<Box<dyn OsBackend>>) -> std::io::Result<Self> {
   // Before anything is created or installed: a refused Runtime::new leaves
   // this thread's runtime, and its TLS, untouched.
   if runtime_is_live_on_this_thread() {
@@ -131,15 +134,7 @@ impl Runtime {
       "a Lion runtime is already running on this thread; runtimes do not nest (run the new one on another thread)",
     ));
   }
-  let (reactor, interrupt_handle) = match Reactor::new() {
-    lion_reactor::IoResult::Ok(r) => r,
-    lion_reactor::IoResult::Err(_) => {
-    return Err(std::io::Error::new(
-      std::io::ErrorKind::Other,
-      "Failed to create reactor",
-    ))
-    }
-  };
+  let (reactor, interrupt_handle) = new_reactor(backend)?;
 
   let cross_thread_queue = tls::CrossThreadQueue::new();
   tls::set_cross_thread_ctx(
@@ -277,16 +272,57 @@ pub use types::JoinSender;
 pub use types::join_handle::JoinError;
 pub use types::waker::create_reactor_waker_for_current;
 pub use blocking::spawn_blocking;
+pub use lion_reactor::os;
+
+// The reactor of a new runtime: over the embedder's backend if one was given,
+// else over Lion's mio backend (feature `mio`).
+fn new_reactor(backend: Option<Box<dyn OsBackend>>) -> std::io::Result<(Reactor, InterruptHandle)> {
+  let created = match backend {
+    Some(backend) => Reactor::with_backend(backend),
+    None => default_reactor()?,
+  };
+  match created {
+    lion_reactor::IoResult::Ok(r) => Ok(r),
+    lion_reactor::IoResult::Err(e) => {
+      let e = e.into_io_error();
+      Err(std::io::Error::new(e.kind(), format!("Failed to create reactor: {e}")))
+    }
+  }
+}
+
+#[cfg(feature = "mio")]
+fn default_reactor() -> std::io::Result<lion_reactor::IoResult<(Reactor, InterruptHandle)>> {
+  Ok(Reactor::new())
+}
+
+#[cfg(not(feature = "mio"))]
+fn default_reactor() -> std::io::Result<lion_reactor::IoResult<(Reactor, InterruptHandle)>> {
+  Err(std::io::Error::new(
+    std::io::ErrorKind::Unsupported,
+    "lion-executor was built without its `mio` feature, so it has no default OS backend: \
+     build the runtime with RuntimeBuilder::os_backend",
+  ))
+}
 
 pub struct RuntimeBuilder {
   config: RuntimeConfig,
+  backend: Option<Box<dyn OsBackend>>,
 }
 
 impl RuntimeBuilder {
   pub fn new() -> Self {
   Self {
     config: RuntimeConfig::default(),
+    backend: None,
   }
+  }
+
+  /// Drives the runtime's reactor with this OS backend instead of Lion's mio
+  /// backend. The backend must meet the edge-triggered contract documented in
+  /// `lion_reactor::os`.
+  pub fn os_backend(mut self, backend: Box<dyn OsBackend>) -> Self {
+  self.backend = Some(backend);
+  self
   }
 
   pub fn event_interval(mut self, interval: usize) -> Self {
@@ -296,7 +332,7 @@ impl RuntimeBuilder {
   }
 
   pub fn build(self) -> std::io::Result<Runtime> {
-  Runtime::with_config(self.config)
+  Runtime::with_config(self.config, self.backend)
   }
 }
 

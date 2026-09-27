@@ -18,8 +18,12 @@ pub mod framework;
 pub mod invariants;
 pub mod proof;
 pub mod alloc_verified;
+pub mod os;
 
 pub use handle::ReactorHandle;
+pub use os::{OsBackend, OsEvent, OsInterrupt, RawFd};
+#[cfg(feature = "mio")]
+pub use os::MioBackend;
 pub use reactor::{Reactor, ReactorGuard};
 pub use types::{
   Duration, Instant, Interest, InterruptHandle, IoError, IoResult, ResourceId, Source, Waker,

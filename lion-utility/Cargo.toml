@@ -10,11 +10,21 @@ license = "MIT"
 vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
 lion-utility-spec = { path = "lion-utility-spec", package = "lion-utility-spec" }
 lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
-lion-reactor = { path = "../lion-reactor", package = "lion-reactor" }
-lion-executor = { path = "../lion-executor", package = "lion-executor" }
+# Only this crate's `mio` feature turns on the runtime's mio backend (the
+# sockets below always use mio for their syscalls, whatever backend polls them).
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false }
+lion-executor = { path = "../lion-executor", package = "lion-executor", default-features = false }
 mio = { version = "1.0", features = ["os-poll", "net"] }
 socket2 = { version = "0.5", features = ["all"] }
 tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[features]
+default = ["mio"]
+mio = ["lion-reactor/mio", "lion-executor/mio"]
+
+[dev-dependencies]
+# The in-process mock OS backend (lion_reactor::os::mock) for backend tests.
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false, features = ["test-backend"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }

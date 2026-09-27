@@ -8,9 +8,9 @@ verified. Regenerate the raw list with:
 grep -rn "external_body" lion-reactor/src lion-executor/src lion-timer-wheel/src lion-slab/src lion-utility/src
 ```
 
-**Count**: 118 trusted `external_body` items — lion-reactor 57, lion-executor 54,
+**Count**: 119 trusted `external_body` items — lion-reactor 58, lion-executor 54,
 lion-timer-wheel 7, lion-slab 0, lion-utility 0. By trust kind: 22 `semantic`,
-26 `ghost-log`, 45 `raw`, 25 `view` (definitions in §3). Every item carries its
+26 `ghost-log`, 46 `raw`, 25 `view` (definitions in §3). Every item carries its
 own attribute line, so the grep above finds exactly the items (the two ghost-log
 families used to expand from `macro_rules!`, whose one attribute line stood for
 all their items; they are now written out). Beyond these: two `#[verifier::external]` items (`lion-slab
@@ -57,10 +57,16 @@ theorems:
    `verus!` items does not expand macros). What remains trusted is the call
    protocol (each action invoked once, in order, around its real effect);
    mechanized refinement is out of scope.
-2. **mio / OS boundary** — `poll_events_action` (poll effects; tokens returned
-   faithfully; readable/writable flags reflect real readiness — the rid<->token
-   codec itself is verified), `register/deregister_io_source_action`,
-   `Instant::now`, `Reactor::mio_setup` (handle creation, no semantic ensures).
+2. **OS boundary (the `OsBackend` seam)** — `poll_events_action` (the
+   backend's wait; tokens returned faithfully; event flags reflect real
+   readiness — the rid<->token codec itself is verified),
+   `register/deregister_io_source_action`, `Instant::now`,
+   `Reactor::mio_setup`/`backend_setup` (handle creation, no semantic ensures),
+   and the backend behind them: `lion_reactor::os::OsBackend`, implemented by
+   Lion's `MioBackend` (default feature `mio`) or by an embedder. What the
+   reactor relies on is the edge-triggered contract written down in
+   `lion-reactor/src/os/mod.rs`; a backend that swallows a readiness
+   transition or an interrupt signal loses a wakeup, which no proof sees.
 3. **`Executor::poll_future_raw` + the task wakers** — user future code runs behind
    a free function that cannot touch the executor by construction; the remaining
    trust is that user wake/spawn effects route through the TLS side-channels the
@@ -222,7 +228,7 @@ Each item carries one of four categories:
 - **raw** — zero or near-zero ensures: a claim-free primitive effect;
 - **view** — opaque type wrapper or uninterpreted spec-view declaration.
 
-Tally: 118 items = 22 semantic + 26 ghost-log + 45 raw + 25 view.
+Tally: 119 items = 22 semantic + 26 ghost-log + 46 raw + 25 view.
 
 A pedantic satisfiability note on the exact-effect (`semantic`) rows: ensures of
 the form `count == old(count) + 1` carry no overflow-side `requires`, so at the
@@ -230,7 +236,7 @@ the form `count == old(count) + 1` carry no overflow-side `requires`, so at the
 the real body would wrap or panic. Reaching that state needs ~2^64 live
 registrations, so it is physically unreachable; noted here for completeness.
 
-### lion-reactor (57 items)
+### lion-reactor (58 items)
 
 | file:line | fn name | category | trusted postcondition |
 |---|---|---|---|
@@ -245,38 +251,39 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/resource_slot_wrapper.rs:95 | `ResourceSlotWrapper::clone_timer_waker` | semantic | cloned waker views equal to the slot's stored timer waker |
 | src/resource_slot_wrapper.rs:106 | `ResourceSlotWrapper::clone_read_waker` | semantic | Some-ness matches slot's read_waker; value views equal when Some |
 | src/resource_slot_wrapper.rs:119 | `ResourceSlotWrapper::clone_write_waker` | semantic | Some-ness matches slot's write_waker; value views equal when Some |
-| src/reactor/ext.rs:94 | `Reactor::park_begin_action` | ghost-log | ghost log gains exactly one `Park{result:None}`; exec fields unchanged |
-| src/reactor/ext.rs:106 | `Reactor::park_end_action` | ghost-log | ghost log gains `Park{result:Some}`; exec fields unchanged |
-| src/reactor/ext.rs:118 | `Reactor::register_io_begin_action` | ghost-log | ghost log gains `RegisterIoResource{result:None}`; exec fields unchanged |
-| src/reactor/ext.rs:130 | `Reactor::register_io_end_action` | ghost-log | ghost log gains `RegisterIoResource{result:Some}`; exec fields unchanged |
-| src/reactor/ext.rs:142 | `Reactor::deregister_io_begin_action` | ghost-log | ghost log gains `DeregisterIoResource{result:None}`; exec fields unchanged |
-| src/reactor/ext.rs:154 | `Reactor::deregister_io_end_action` | ghost-log | ghost log gains `DeregisterIoResource{result:Some}`; exec fields unchanged |
-| src/reactor/ext.rs:166 | `Reactor::set_waker_begin_action` | ghost-log | ghost log gains `SetWaker{result:None}` recording rid/interest/waker; exec fields unchanged |
-| src/reactor/ext.rs:178 | `Reactor::set_waker_end_action` | ghost-log | ghost log gains `SetWaker{result:Ok(())}`; exec fields unchanged |
-| src/reactor/ext.rs:192 | `Reactor::register_timer_begin_action` | ghost-log | ghost log gains `RegisterTimer{result:None}`; exec fields unchanged |
-| src/reactor/ext.rs:205 | `Reactor::register_timer_end_action` | ghost-log | ghost log gains `RegisterTimer{result:Some}`; exec fields unchanged |
-| src/reactor/ext.rs:218 | `Reactor::deregister_timer_begin_action` | ghost-log | ghost log gains `DeregisterTimer{result:true}`; exec fields unchanged |
-| src/reactor/ext.rs:233 | `Reactor::log_get_current_time_action` | ghost-log | ghost log gains `GetCurrentTime{t@}`; exec fields unchanged (clock monotonicity is PROVEN in the verified wrapper `get_current_time_action`, which clamps the raw reading to `wheel.elapsed`) |
+| src/reactor/ext.rs:92 | `Reactor::park_begin_action` | ghost-log | ghost log gains exactly one `Park{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:104 | `Reactor::park_end_action` | ghost-log | ghost log gains `Park{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:116 | `Reactor::register_io_begin_action` | ghost-log | ghost log gains `RegisterIoResource{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:128 | `Reactor::register_io_end_action` | ghost-log | ghost log gains `RegisterIoResource{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:140 | `Reactor::deregister_io_begin_action` | ghost-log | ghost log gains `DeregisterIoResource{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:152 | `Reactor::deregister_io_end_action` | ghost-log | ghost log gains `DeregisterIoResource{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:164 | `Reactor::set_waker_begin_action` | ghost-log | ghost log gains `SetWaker{result:None}` recording rid/interest/waker; exec fields unchanged |
+| src/reactor/ext.rs:176 | `Reactor::set_waker_end_action` | ghost-log | ghost log gains `SetWaker{result:Ok(())}`; exec fields unchanged |
+| src/reactor/ext.rs:190 | `Reactor::register_timer_begin_action` | ghost-log | ghost log gains `RegisterTimer{result:None}`; exec fields unchanged |
+| src/reactor/ext.rs:203 | `Reactor::register_timer_end_action` | ghost-log | ghost log gains `RegisterTimer{result:Some}`; exec fields unchanged |
+| src/reactor/ext.rs:216 | `Reactor::deregister_timer_begin_action` | ghost-log | ghost log gains `DeregisterTimer{result:true}`; exec fields unchanged |
+| src/reactor/ext.rs:231 | `Reactor::log_get_current_time_action` | ghost-log | ghost log gains `GetCurrentTime{t@}`; exec fields unchanged (clock monotonicity is PROVEN in the verified wrapper `get_current_time_action`, which clamps the raw reading to `wheel.elapsed`) |
 | src/reactor/ext.rs (publish_cached_now) | `Reactor::publish_cached_now` | raw | no ensures — writes the park-cycle clock observation into the trusted handle layer's thread-local cache (`handle.rs CACHED_NOW`), entirely outside verified state; readers (Sleep::poll) treat it as an optimization hint with a real-clock fallback, and a stale value can only delay a completion decision, never produce an early fire |
-| src/reactor/ext.rs:251 | `Reactor::register_io_source_action` | ghost-log | log gains matching `Outbound::RegisterIoResource{result}`; source/fields unchanged (real effect: mio `registry.register` on the verified rid→token codec; mio faithfulness is the residual trust) |
-| src/reactor/ext.rs:277 | `Reactor::deregister_io_source_action` | ghost-log | log gains matching `Outbound::DeregisterIoResource{result}`; source/fields unchanged (real effect: mio `registry.deregister`) |
-| src/reactor/ext.rs:300 | `Reactor::poll_events_action` | ghost-log | log gains `Outbound::PollEvents` whose logged count equals the returned event vec length; fields unchanged (real effect: mio poll — tokens returned faithfully and readable/writable flags matching real readiness are the residual trust) |
-| src/reactor/ext.rs:331 | `Reactor::io_event_ready_action` | ghost-log | ghost log gains `IoEventReady{event@}`; exec fields unchanged |
-| src/reactor/ext.rs:382 | `Reactor::wake_task_action` | ghost-log | log gains `WakeTask{waker@, source_rid@}`; fields unchanged (real effect: `wake_by_ref`) |
+| src/reactor/ext.rs:249 | `Reactor::register_io_source_action` | ghost-log | log gains matching `Outbound::RegisterIoResource{result}`; source/fields unchanged (real effect: `OsBackend::register(fd, token, interest)` on the verified rid→token codec; the backend's faithfulness is the residual trust) |
+| src/reactor/ext.rs:273 | `Reactor::deregister_io_source_action` | ghost-log | log gains matching `Outbound::DeregisterIoResource{result}`; source/fields unchanged (real effect: `OsBackend::deregister(fd)`) |
+| src/reactor/ext.rs:295 | `Reactor::poll_events_action` | ghost-log | log gains `Outbound::PollEvents` whose logged count equals the returned event vec length; fields unchanged (real effect: `OsBackend::wait` into the reused event buffer; each backend event becomes a Readable io event if readable, read-closed or error, and a Writable one if writable, write-closed or error — tokens returned faithfully and flags matching real readiness, per the contract in `src/os/mod.rs`, are the residual trust) |
+| src/reactor/ext.rs:327 | `Reactor::io_event_ready_action` | ghost-log | ghost log gains `IoEventReady{event@}`; exec fields unchanged |
+| src/reactor/ext.rs:378 | `Reactor::wake_task_action` | ghost-log | log gains `WakeTask{waker@, source_rid@}`; fields unchanged (real effect: `wake_by_ref`) |
 | src/types/waker.rs:7 | `struct Waker` | view | opaque wrapper of `std::task::Waker` |
 | src/types/waker.rs:15 | `Waker::view` | view | uninterpreted spec view onto `WakerView` |
 | src/types/waker.rs:22 | `Waker::clone` | semantic | clone views equal to original (`result@ == self@`) |
-| src/reactor/new.rs:17 | `Reactor::mio_setup` | raw | no ensures — creates the OS handles (mio Poll / Events / cross-thread Waker); all 8 empty-state invariants are PROVEN downstream in verified `Reactor::new` |
-| src/types/io_event_queue.rs:6 | `struct IoEventQueue` | view | opaque wrapper of `mio::Events` |
-| src/types/io_event_queue.rs:14 | `IoEventQueue::view` | view | uninterpreted spec view (`int`) |
-| src/types/io_event_queue.rs:21 | `IoEventQueue::with_capacity` | raw | no ensures (opaque effect) |
-| src/types/source.rs:6 | `struct Source` | view | opaque wrapper of `&mut dyn mio::event::Source` |
-| src/types/source.rs:14 | `Source::view` | view | uninterpreted spec view onto `SourceView` |
-| src/types/interrupt_handle.rs:34 | `struct InterruptHandle` | view | opaque wrapper (Arc + AtomicBool + mio::Waker) |
-| src/types/interrupt_handle.rs:42 | `InterruptHandle::view` | view | uninterpreted spec view (`int`) |
-| src/types/interrupt_handle.rs:49 | `InterruptHandle::clone` | raw | no ensures (opaque effect) |
-| src/types/interrupt_handle.rs:58 | `InterruptHandle::wake` | raw | no ensures (opaque effect) — cross-thread mio wake, dedup via AtomicBool |
-| src/types/interrupt_handle.rs:63 | `InterruptHandle::reset` | raw | no ensures (opaque effect) — clears the notified flag |
+| src/reactor/new.rs:34 | `Reactor::mio_setup` | raw | no ensures — (feature `mio`) creates Lion's `MioBackend` (mio Poll, event batch, eventfd waker) and wraps it with the reactor's event buffer and interrupt handle; all 8 empty-state invariants are PROVEN downstream in verified `Reactor::assemble`, which verified `Reactor::new` calls |
+| src/reactor/new.rs:46 | `Reactor::backend_setup` | raw | no ensures — wraps an embedder's backend (already in the opaque `Poll`) with the event buffer and the interrupt handle over the backend's `OsInterrupt`; verified `Reactor::with_poll` then calls `assemble`, so a reactor over any backend carries the same proven invariants (`Reactor::with_backend` is the plain-Rust wrapper that boxes the backend into a `Poll`, since Verus does not support `dyn` types in verified signatures) |
+| src/types/io_event_queue.rs:9 | `struct IoEventQueue` | view | opaque wrapper of the `Vec<OsEvent>` a backend's wait fills |
+| src/types/io_event_queue.rs:17 | `IoEventQueue::view` | view | uninterpreted spec view (`int`) |
+| src/types/io_event_queue.rs:24 | `IoEventQueue::with_capacity` | raw | no ensures (opaque effect) |
+| src/types/source.rs:9 | `struct Source` | view | opaque wrapper of a raw fd |
+| src/types/source.rs:17 | `Source::view` | view | uninterpreted spec view onto `SourceView` |
+| src/types/interrupt_handle.rs:40 | `struct InterruptHandle` | view | opaque wrapper (Arc + AtomicBool + the backend's `Arc<dyn OsInterrupt>`) |
+| src/types/interrupt_handle.rs:48 | `InterruptHandle::view` | view | uninterpreted spec view (`int`) |
+| src/types/interrupt_handle.rs:55 | `InterruptHandle::clone` | raw | no ensures (opaque effect) |
+| src/types/interrupt_handle.rs:64 | `InterruptHandle::wake` | raw | no ensures (opaque effect) — cross-thread `OsInterrupt::signal`, dedup via AtomicBool |
+| src/types/interrupt_handle.rs:69 | `InterruptHandle::reset` | raw | no ensures (opaque effect) — clears the notified flag |
 | src/reactor/timer.rs:415 | `Reactor::next_deadline` | raw | no ensures (opaque effect) — reads wheel's next deadline |
 | src/reactor/timer.rs:424 | `Reactor::flush_pending_deregister` | raw | no ensures (opaque effect) — applies the deferred wheel + slab removal, state havoced |
 | src/types/io_result.rs:6 | `struct IoError` | view | opaque wrapper of `std::io::Error` |
@@ -289,8 +296,8 @@ registrations, so it is physically unreachable; noted here for completeness.
 | src/types/time.rs:101 | `Instant::sub` | raw | no ensures (opaque effect) — saturating sub |
 | src/reactor/park.rs:22 | `mark_io_readable` | raw | no ensures (opaque effect) — sets the rid's TLS readiness flag (no-op if the rid has no entry) |
 | src/reactor/park.rs:27 | `mark_io_writable` | raw | no ensures (opaque effect) — sets the rid's TLS readiness flag (no-op if the rid has no entry) |
-| src/types/poll.rs:5 | `struct Poll` | view | opaque wrapper of `mio::Poll` |
-| src/types/poll.rs:13 | `Poll::view` | view | uninterpreted spec view (`int`) |
+| src/types/poll.rs:9 | `struct Poll` | view | opaque wrapper of the reactor's `Box<dyn OsBackend>` |
+| src/types/poll.rs:17 | `Poll::view` | view | uninterpreted spec view (`int`) |
 
 ### lion-executor (54 items)
 
@@ -394,12 +401,37 @@ dedicated "lion-utility (glue layer)" section under §4 below.
 
 ## 4. Per-crate trust summaries
 
-**lion-reactor (56).** The OS boundary itself: mio epoll registration/polling
-and handle creation (`mio_setup`), the raw clock read (`Instant::now` — the
-monotonicity the timer proofs use is established by a verified clamp, not
-trusted), `std::task::Waker` cloning/waking, plus the ghost-log
-action family (each trusted to append exactly one history event and touch
-nothing else). `Reactor::new` is verified: only the mio handles are opaque.
+**lion-reactor (58).** The OS boundary itself: registration and polling through
+the `OsBackend` seam and handle creation (`mio_setup`, `backend_setup`), the raw
+clock read (`Instant::now` — the monotonicity the timer proofs use is
+established by a verified clamp, not trusted), `std::task::Waker`
+cloning/waking, plus the ghost-log action family (each trusted to append
+exactly one history event and touch nothing else). `Reactor::new` and
+`Reactor::with_poll` are verified: only the OS handles are opaque.
+
+### lion-reactor OS seam (outside `verus!`)
+
+`src/os/` is plain Rust that Verus never sees; the verified reactor reaches it
+only through the `register/deregister_io_source_action`, `poll_events_action`,
+`mio_setup` and `backend_setup` rows above. It holds no `unsafe`.
+
+| file | item | what is trusted |
+|---|---|---|
+| src/os/mod.rs | `OsBackend`, `OsInterrupt`, `OsEvent` | the seam itself, object safe (`Box<dyn OsBackend>` in the reactor's `Poll`, `Arc<dyn OsInterrupt>` in `InterruptHandle`, so one dynamic call per park and per registration). Its doc comment is the contract a backend must meet: edge-triggered reports (every transition to ready reported again, none swallowed), mio's flag meanings, error and hang-up delivered whatever the interest, tokens returned verbatim (the reactor never registers token 0), `wait` timeouts (`None` blocks, zero polls; `EINTR` is an empty wait), and an interrupt callable from any thread that ends the current or next wait and is consumed inside `wait`, never reported as an event |
+| src/os/mio_backend.rs | `MioBackend` (feature `mio`, default) | Lion's former direct mio code behind the trait: fds registered through `mio::unix::SourceFd` (the same epoll registration mio's socket types make: edge-triggered, `EPOLLRDHUP`), mio's eventfd `Waker` under token 0 as the interrupt, filtered out of the returned events (it used to reach the reactor as a harmless event for rid 0), and an interrupted wait (`EINTR`) returned as an empty one instead of an error |
+| src/os/mock.rs | `MockBackend` / `MockOs` (feature `test-backend`, never in a default build) | an in-process backend for tests: the test injects readiness edges for fake fds, masked by the registered interest, merged per fd while pending, dropped on deregistration; the interrupt ends the current or next wait and is consumed by it |
+| src/types/interrupt_handle.rs | `InterruptHandleInner` | the coalescing wake: `wake` signals the backend only on the first wake since the owner's `reset`, and the executor resets before it drains its cross-thread queue and parks (unchanged; it now holds the backend's `OsInterrupt` instead of a `mio::Waker`) |
+
+The reactor now depends on mio only through the `mio` feature (`default =
+["mio"]`), which lion-executor, lion-utility and the `lion` facade forward
+(each depends on the crate below with `default-features = false`). With
+`--no-default-features`, lion-reactor and lion-executor build with no mio,
+socket2 or tokio in their dependency graph, and `Runtime::new` fails with
+`ErrorKind::Unsupported` until a backend is given
+(`RuntimeBuilder::os_backend`). Regression tests: `lion-reactor/tests/os_backend.rs`
+(the reactor alone over the mock: timer, readiness, error-only event,
+interrupt) and `lion-executor/tests/os_backend.rs` (a runtime over the mock,
+also run without mio).
 
 **lion-executor (54).** Scheduling plumbing: claim-free raw takers for the TLS
 wake queues and the mpsc injection channel (`try_recv_raw`,

@@ -1,9 +1,15 @@
+use crate::os::OsInterrupt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use vstd::prelude::*;
 
+// The reactor's cross-thread wake: the backend's interrupt plus a coalescing
+// flag. `wake` (any thread) signals the backend only on the first wake since
+// the owner's last `reset`; the owner resets before it drains its cross-thread
+// queue and parks, so a wake that finds the flag already set is covered by the
+// signal that set it (see crate::os).
 pub struct InterruptHandleShared {
-  waker: mio::Waker,
+  os: Arc<dyn OsInterrupt>,
   notified: AtomicBool,
 }
 
@@ -11,16 +17,16 @@ pub struct InterruptHandleShared {
 pub struct InterruptHandleInner(pub Arc<InterruptHandleShared>);
 
 impl InterruptHandleInner {
-  pub fn new(waker: mio::Waker) -> Self {
+  pub fn new(os: Arc<dyn OsInterrupt>) -> Self {
     InterruptHandleInner(Arc::new(InterruptHandleShared {
-      waker,
+      os,
       notified: AtomicBool::new(false),
     }))
   }
 
   pub fn wake(&self) {
     if !self.0.notified.swap(true, Ordering::AcqRel) {
-      self.0.waker.wake().expect("failed to wake reactor");
+      self.0.os.signal().expect("failed to wake reactor");
     }
   }
 

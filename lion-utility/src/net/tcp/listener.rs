@@ -45,9 +45,9 @@ impl TcpListener {
     }))
   }
 
-  fn new(mut listener: mio::net::TcpListener) -> Result<TcpListener> {
+  fn new(listener: mio::net::TcpListener) -> Result<TcpListener> {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut listener as &mut dyn mio::event::Source);
+    let mut source = Source::new(listener.as_raw_fd());
     let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE) {
       IoResult::Ok(id) => id,
       IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),
@@ -114,7 +114,7 @@ impl<'a> Future for Accept<'a> {
 impl Drop for TcpListener {
   fn drop(&mut self) {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut self.inner as &mut dyn mio::event::Source);
+    let mut source = Source::new(self.inner.as_raw_fd());
     let _ = handle.deregister_io_resource(self.resource_id, &mut source);
     self.kernel.get_mut().drop_step();
   }

@@ -66,6 +66,19 @@ impl Clone for IoError {
   }
 }
 
+impl IoError {
+  /// The underlying `std::io::Error`.
+  pub fn into_io_error(self) -> std::io::Error {
+    self.inner
+  }
+}
+
+impl From<IoError> for std::io::Error {
+  fn from(e: IoError) -> std::io::Error {
+    e.inner
+  }
+}
+
 impl std::fmt::Debug for IoError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     self.inner.fmt(f)

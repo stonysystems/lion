@@ -1,3 +1,4 @@
+use crate::os::OsEvent;
 use crate::reactor::Reactor;
 use crate::spec::log::*;
 use crate::types::{
@@ -10,8 +11,8 @@ use vstd::prelude::*;
 // fits a usize, i.e. always on the 64-bit targets lion supports). Both the
 // registration and the poll-decode paths below go through this pair, so a
 // token seen by the OS decodes to exactly the rid that was registered; the
-// residual poll_events trust is mio itself (tokens returned faithfully,
-// readable/writable flags matching real readiness).
+// residual poll_events trust is the OS backend itself (tokens returned
+// faithfully, event flags matching real readiness; see crate::os).
 verus! {
 
 pub fn encode_token_raw(rid: u64) -> (result: usize)
@@ -35,23 +36,20 @@ pub proof fn token_roundtrip(rid: u64)
 
 }
 
-pub(crate) fn interest_to_mio(interest: Interest) -> mio::Interest {
-  match (interest.readable, interest.writable) {
-    (true, true) => mio::Interest::READABLE.add(mio::Interest::WRITABLE),
-    (true, false) => mio::Interest::READABLE,
-    (false, true) => mio::Interest::WRITABLE,
-    (false, false) => mio::Interest::READABLE,
-  }
-}
-
-fn collect_io_events(mio_events: &mio::event::Events) -> Vec<IoEvent> {
+// Turns one wait's backend events into the reactor's per-direction io events.
+// A resource's reader is woken on `readable || read_closed || error` and its
+// writer on `writable || write_closed || error`: an event that carries only an
+// error or a hang-up (mio reports neither readable nor writable for EPOLLERR
+// alone, which a pipe's write end gets when its reader closes while the pipe is
+// full) must still wake the direction that is waiting, or it waits forever.
+fn collect_io_events(os_events: &[OsEvent]) -> Vec<IoEvent> {
   let mut events = Vec::with_capacity(64);
-  for e in mio_events.iter() {
-    let resource_id = ResourceId(decode_token_raw(e.token().0));
-    let error = e.is_error();
-    let read_closed = e.is_read_closed();
-    let write_closed = e.is_write_closed();
-    if e.is_readable() {
+  for e in os_events {
+    let resource_id = ResourceId(decode_token_raw(e.token));
+    let error = e.error;
+    let read_closed = e.read_closed;
+    let write_closed = e.write_closed;
+    if e.readable || read_closed || error {
       events.push(IoEvent {
         resource_id,
         mode: IoMode::Readable,
@@ -60,7 +58,7 @@ fn collect_io_events(mio_events: &mio::event::Events) -> Vec<IoEvent> {
         write_closed,
       });
     }
-    if e.is_writable() {
+    if e.writable || write_closed || error {
       events.push(IoEvent {
         resource_id,
         mode: IoMode::Writable,
@@ -265,10 +263,8 @@ impl Reactor {
       self.resources == old(self).resources,
       self.free_rids == old(self).free_rids,
   {
-    let registry = self.poll.inner.registry();
-    let mio_token = mio::Token(encode_token_raw(resource_id.0));
-    let mio_interest = interest_to_mio(interest);
-    match registry.register(source.inner, mio_token, mio_interest) {
+    let token = encode_token_raw(resource_id.0);
+    match self.poll.inner.register(source.fd, token, interest) {
       Ok(()) => IoResult::Ok(()),
       Err(e) => IoResult::Err(IoError { inner: e }),
     }
@@ -290,8 +286,7 @@ impl Reactor {
       self.resources == old(self).resources,
       self.free_rids == old(self).free_rids,
   {
-    let registry = self.poll.inner.registry();
-    match registry.deregister(source.inner) {
+    match self.poll.inner.deregister(source.fd) {
       Ok(()) => IoResult::Ok(()),
       Err(e) => IoResult::Err(IoError { inner: e }),
     }
@@ -319,7 +314,8 @@ impl Reactor {
       self.free_rids == old(self).free_rids,
   {
     let std_timeout = timeout.map(|d| std::time::Duration::from_millis(d.as_millis()));
-    match self.poll.inner.poll(&mut self.events.inner, std_timeout) {
+    self.events.inner.clear();
+    match self.poll.inner.wait(&mut self.events.inner, std_timeout) {
       Ok(()) => {
         let lion_events: Vec<IoEvent> = collect_io_events(&self.events.inner);
         IoResult::Ok(lion_events)

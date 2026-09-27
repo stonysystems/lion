@@ -177,9 +177,13 @@ without the Verus driver; it does not affect verification or the runtime crates.
 Every claim above is machine-checked *modulo* an explicitly trusted base, inventoried
 per-item in [`TCB_and_limitations.md`](TCB_and_limitations.md):
 
-- **`external_body` boundary functions** (118 across the six verified crates — OS/syscall
+- **`external_body` boundary functions** (119 across the six verified crates — OS/syscall
   wrappers, waker plumbing, low-level slot operations) whose postconditions are trusted,
   not verified — plus two fully-unchecked `#[verifier::external]` items;
+- **the OS backend** behind the reactor's `lion_reactor::os::OsBackend` seam — Lion's mio
+  backend by default (feature `mio`), or one an embedder supplies through
+  `RuntimeBuilder::os_backend` — trusted to meet the edge-triggered readiness and
+  interrupt contract written down in `lion-reactor/src/os/mod.rs`;
 - **the runtime's plain-Rust surface** around the verified core — `Runtime` (one per
   thread; `block_on`, and `tick`/`tick_with_timeout` for an embedder's own loop), the
   task wrapper that contains panics and carries `JoinHandle::abort`, `spawn_local`'s

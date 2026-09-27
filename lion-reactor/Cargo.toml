@@ -13,7 +13,20 @@ lion-reactor-spec = { path = "../lion-reactor-spec", package = "lion-reactor-spe
 lion-utility-spec = { path = "../lion-utility/lion-utility-spec", package = "lion-utility-spec" }
 lion-slab = { path = "../lion-slab", package = "lion-slab" }
 lion-timer-wheel = { path = "../lion-timer-wheel", package = "lion-timer-wheel" }
-mio = { version = "1.0", features = ["os-poll", "net"] }
+# The default OS backend (`os::MioBackend`). Without the `mio` feature the
+# reactor has no OS dependency: an embedder supplies its own `os::OsBackend`.
+mio = { version = "1.0", features = ["os-poll", "os-ext"], optional = true }
+
+[features]
+default = ["mio"]
+mio = ["dep:mio"]
+# `os::mock`: an in-process backend with injected readiness, for tests that
+# must not depend on the OS (or on timing of real sockets).
+test-backend = []
+
+[[test]]
+name = "os_backend"
+required-features = ["test-backend"]
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }

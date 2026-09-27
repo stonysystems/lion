@@ -1,11 +1,14 @@
 use super::IoResult;
+use crate::os::OsEvent;
 use vstd::prelude::*;
 
 verus! {
 
+// The buffer a backend's wait fills (see crate::os::OsBackend::wait), reused
+// across parks.
 #[verifier::external_body]
 pub struct IoEventQueue {
-  pub(crate) inner: mio::Events,
+  pub(crate) inner: Vec<OsEvent>,
 }
 
 impl View for IoEventQueue {
@@ -21,7 +24,7 @@ impl IoEventQueue {
   #[verifier::external_body]
   pub fn with_capacity(capacity: usize) -> IoResult<Self> {
     IoResult::Ok(IoEventQueue {
-      inner: mio::Events::with_capacity(capacity),
+      inner: Vec::with_capacity(capacity),
     })
   }
 }

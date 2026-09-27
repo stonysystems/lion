@@ -17,6 +17,7 @@ use std::cell::UnsafeCell;
 use std::future::Future;
 use std::io::{ErrorKind, Result};
 use std::net::SocketAddr;
+use std::os::unix::io::AsRawFd;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -44,9 +45,9 @@ impl UdpSocket {
     }))
   }
 
-  fn new(mut socket: mio::net::UdpSocket) -> Result<UdpSocket> {
+  fn new(socket: mio::net::UdpSocket) -> Result<UdpSocket> {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut socket as &mut dyn mio::event::Source);
+    let mut source = Source::new(socket.as_raw_fd());
     let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE_WRITABLE) {
       IoResult::Ok(id) => id,
       IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),
@@ -156,7 +157,7 @@ impl<'a> Future for SendTo<'a> {
 impl Drop for UdpSocket {
   fn drop(&mut self) {
     let handle = ReactorHandle::new();
-    let mut source = Source::new(&mut self.inner as &mut dyn mio::event::Source);
+    let mut source = Source::new(self.inner.as_raw_fd());
     let _ = handle.deregister_io_resource(self.resource_id, &mut source);
     self.kernel.get_mut().drop_step();
   }

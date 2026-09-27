@@ -9,7 +9,7 @@ and the proof that composes them.
 | Component | What it is | Where it appears in the paper |
 |---|---|---|
 | `lion-executor` | Task scheduling, wakers, the blocking pool — one half of the runtime core, with its executable code mapped onto L2S state and a family of invariants verified over it | the executor half of the runtime-core case study |
-| `lion-reactor` | I/O readiness, timer registration and resource-id allocation — the other half of the core | the reactor half of the same case study |
+| `lion-reactor` | I/O readiness, timer registration and resource-id allocation — the other half of the core. Its OS access goes through one object-safe trait, `os::OsBackend` (register/deregister a raw fd, wait for edge-triggered events, a cross-thread interrupt): Lion's mio backend is the default `mio` feature, and without it the reactor and executor have no OS dependency (an embedder supplies the backend) | the reactor half of the same case study |
 | `lion-liveness` | The composing layer: per-module **Async Contracts** and the glue proof that chains them into the top-level theorem, *"once a task is spawned it is driven to completion"* | the end-to-end liveness theorem |
 | `lion-slab`, `lion-timer-wheel` | The leaf data structures the core builds on, verified independently | the leaf-structure layer of the module stack |
 | `lion-utility` (contains `lion-utility-spec`) | The verified utilities layer above the core (channels, synchronisation) | the utilities layer |
