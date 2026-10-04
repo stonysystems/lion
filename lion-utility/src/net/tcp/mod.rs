@@ -1,6 +1,7 @@
-pub mod method;
-pub mod proof;
-pub mod kernel;
+// The verified io kernel lives in lion-net (with no OS dependency); its modules
+// are re-exported here under their old paths.
+pub use lion_net::net::tcp::{kernel, method, proof};
+
 pub mod stream;
 pub mod listener;
 pub mod socket;

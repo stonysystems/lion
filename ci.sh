@@ -31,6 +31,7 @@ run_verify lion-timer-wheel
 run_verify lion-reactor-spec
 run_verify lion-reactor
 run_verify lion-executor
+run_verify lion-net
 run_verify lion-utility
 run_verify lion-liveness
 

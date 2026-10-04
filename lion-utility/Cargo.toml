@@ -14,6 +14,8 @@ lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framewo
 # sockets below always use mio for their syscalls, whatever backend polls them).
 lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false }
 lion-executor = { path = "../lion-executor", package = "lion-executor", default-features = false }
+# The verified io kernel (net::tcp::{kernel, method, proof}).
+lion-net = { path = "../lion-net", package = "lion-net" }
 mio = { version = "1.0", features = ["os-poll", "net"] }
 socket2 = { version = "0.5", features = ["all"] }
 tokio = { version = "1", default-features = false, features = ["io-util"] }

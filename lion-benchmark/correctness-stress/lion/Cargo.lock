@@ -182,6 +182,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lion-net"
+version = "0.1.0"
+dependencies = [
+ "lion-framework-spec",
+ "lion-reactor",
+ "lion-utility-spec",
+ "vstd",
+]
+
+[[package]]
 name = "lion-reactor"
 version = "0.1.0"
 dependencies = [
@@ -223,6 +233,7 @@ version = "0.1.0"
 dependencies = [
  "lion-executor",
  "lion-framework-spec",
+ "lion-net",
  "lion-reactor",
  "lion-utility-spec",
  "mio",

@@ -1,0 +1,35 @@
+[package]
+name = "lion-net"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lion Team"]
+description = "Lion's TCP stream and listener over a raw fd: the verified io kernel plus AsyncFd glue, with no OS dependency"
+license = "MIT"
+
+# No features and no OS crates: the stream and listener wrap a socket the
+# embedder created, and perform no syscall of their own. The embedder's
+# operations reach the socket through closures (`poll_*_with`) or a
+# `SocketOps` implementation.
+[dependencies]
+vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
+lion-utility-spec = { path = "../lion-utility/lion-utility-spec", package = "lion-utility-spec" }
+# Ghost-only; named directly because Verus resolves the framework spec items
+# proof.rs reaches through lion-utility-spec only from a direct dependency.
+lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false }
+
+[dev-dependencies]
+# A runtime with the mio backend, for tests over real loopback sockets, and
+# the in-process mock backend (lion_reactor::os::mock) for tests whose
+# readiness edges are injected.
+lion-executor = { path = "../lion-executor", package = "lion-executor", default-features = true }
+lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = true, features = ["test-backend"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+
+[package.metadata.verus]
+verify = true
+
+[package.metadata.verus.ide]
+extra_args = "--crate-type=lib --expand-errors"
