@@ -51,8 +51,17 @@
 //! `Pending` without calling `try_io` (or `poll_*_io`) until `WouldBlock`, no
 //! waker is registered and nothing will wake it.
 //!
-//! `AsyncFd` is `!Send`: the flags, the waker slots and the reactor are
-//! per-thread, and (1) holds only on the reactor's own thread.
+//! The flags, the waker slots and the reactor are per-thread, and (1) holds
+//! only on the reactor's own thread. `AsyncFd` is nevertheless `Send` and
+//! `Sync`: it holds only plain numbers, every per-thread table is reached
+//! through the current thread's thread-locals, and every operation first checks
+//! that the current reactor is the one the fd was registered with (a
+//! process-wide identity, so another thread's reactor never matches). Used off
+//! its reactor's thread it fails closed: a poll returns an error and a drop
+//! leaves the registration to its reactor, which releases it when it is
+//! dropped. This lets a runtime whose `spawn` demands `Send` futures (Lion's
+//! thread-per-core `spawn`) hold one without `unsafe impl Send`. A ready
+//! guard, which acts on the flags without a check, stays `!Send`.
 
 use crate::handle::ReactorHandle;
 use crate::os::RawFd;
@@ -75,7 +84,6 @@ pub struct AsyncFd {
   rid: ResourceId,
   // The reactor this fd is registered with (current_reactor_epoch at `new`).
   reactor: u64,
-  _not_send: PhantomData<*const ()>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,10 +120,21 @@ impl Direction {
 /// operation, [`try_io`](AsyncFdReadyGuard::try_io), runs one non-blocking
 /// operation and consumes the readiness if and only if that operation returned
 /// `WouldBlock`.
+///
+/// Unlike the [`AsyncFd`] it borrows, a guard is `!Send`: it clears a flag
+/// without checking the reactor, so it stays on the thread whose poll made it.
+///
+/// ```compile_fail
+/// fn assert_send<T: Send>() {}
+/// assert_send::<lion_reactor::AsyncFdReadyGuard<'static>>();
+/// ```
 #[must_use = "a ready guard that is dropped without try_io leaves the task with no waker registered"]
 pub struct AsyncFdReadyGuard<'a> {
   fd: &'a AsyncFd,
   dir: Direction,
+  // A guard acts on this thread's flags without a reactor check: keep it on
+  // the thread whose poll produced it.
+  _not_send: PhantomData<*const ()>,
 }
 
 impl<'a> AsyncFdReadyGuard<'a> {
@@ -151,7 +170,7 @@ impl AsyncFd {
       IoResult::Ok(rid) => {
         // Invariant 5.
         readiness::init_readiness(rid);
-        Ok(AsyncFd { fd, rid, reactor, _not_send: PhantomData })
+        Ok(AsyncFd { fd, rid, reactor })
       }
       IoResult::Err(e) => Err(e.into_io_error()),
     }
@@ -160,6 +179,25 @@ impl AsyncFd {
   /// The registered fd.
   pub fn as_raw_fd(&self) -> RawFd {
     self.fd
+  }
+
+  /// The reactor's io resource id for this registration (for a caller that
+  /// logs its waits against the id, such as an io kernel).
+  pub fn resource_id(&self) -> ResourceId {
+    self.rid
+  }
+
+  /// A guard if the fd may be readable now, else `None`. Observation only:
+  /// unlike [`poll_read_ready`](AsyncFd::poll_read_ready) it registers no
+  /// waker, so a caller that gets `None` (or `WouldBlock` from the guard) and
+  /// means to wait must still poll for readiness before returning `Pending`.
+  pub fn try_read_ready(&self) -> io::Result<Option<AsyncFdReadyGuard<'_>>> {
+    self.try_ready(Direction::Read)
+  }
+
+  /// As [`try_read_ready`](AsyncFd::try_read_ready), for writability.
+  pub fn try_write_ready(&self) -> io::Result<Option<AsyncFdReadyGuard<'_>>> {
+    self.try_ready(Direction::Write)
   }
 
   /// Ready when the fd may be readable; otherwise registers `cx.waker()` for
@@ -227,17 +265,30 @@ impl AsyncFd {
     }
   }
 
+  fn guard(&self, dir: Direction) -> AsyncFdReadyGuard<'_> {
+    AsyncFdReadyGuard { fd: self, dir, _not_send: PhantomData }
+  }
+
+  fn try_ready(&self, dir: Direction) -> io::Result<Option<AsyncFdReadyGuard<'_>>> {
+    self.check_reactor()?;
+    if dir.is_ready(self.rid) {
+      Ok(Some(self.guard(dir)))
+    } else {
+      Ok(None)
+    }
+  }
+
   fn poll_ready(&self, dir: Direction, cx: &mut Context<'_>) -> Poll<io::Result<AsyncFdReadyGuard<'_>>> {
     if let Err(e) = self.check_reactor() {
       return Poll::Ready(Err(e));
     }
     if dir.is_ready(self.rid) {
-      return Poll::Ready(Ok(AsyncFdReadyGuard { fd: self, dir }));
+      return Poll::Ready(Ok(self.guard(dir)));
     }
     // Invariants 3 and 4: the caller's waker first, then the re-check.
     ReactorHandle::new().set_waker(self.rid, dir.interest(), Waker::from_std(cx.waker().clone()));
     if dir.is_ready(self.rid) {
-      return Poll::Ready(Ok(AsyncFdReadyGuard { fd: self, dir }));
+      return Poll::Ready(Ok(self.guard(dir)));
     }
     Poll::Pending
   }

@@ -2,16 +2,22 @@
 
 use crate::reactor::{Reactor, ReactorGuard};
 use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 thread_local! {
   static CURRENT_REACTOR: Cell<Option<*mut Reactor>> = const { Cell::new(None) };
   // Identity of the entered reactor that survives address reuse: a fresh
-  // number per reactor entered on this thread (0: none entered). An io
-  // resource records it at registration, so it never acts on a successor
-  // reactor that happens to live at the same address with its own rids.
+  // process-wide number per reactor entered (0: none entered). An io resource
+  // records it at registration, so it never acts on a successor reactor that
+  // happens to live at the same address with its own rids, nor on another
+  // thread's reactor.
   static CURRENT_EPOCH: Cell<u64> = const { Cell::new(0) };
-  static NEXT_EPOCH: Cell<u64> = const { Cell::new(1) };
 }
+
+// Process-wide, so an epoch also identifies the thread: an io resource moved to
+// another thread (AsyncFd is Send) finds a different epoch there, and fails
+// closed instead of acting on that thread's reactor, whose rids it may share.
+static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 impl Reactor {
   // Installs this reactor as the thread's current one. Entering while another
@@ -21,11 +27,7 @@ impl Reactor {
     let ptr = self as *mut Reactor;
     let already_current = CURRENT_REACTOR.with(|r| r.get() == Some(ptr));
     if !already_current {
-      let epoch = NEXT_EPOCH.with(|n| {
-        let e = n.get();
-        n.set(e + 1);
-        e
-      });
+      let epoch = NEXT_EPOCH.fetch_add(1, Ordering::Relaxed);
       CURRENT_EPOCH.with(|c| c.set(epoch));
     }
     CURRENT_REACTOR.with(|r| {

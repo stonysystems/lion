@@ -565,3 +565,68 @@ fn the_callers_waker_is_the_one_woken() {
     assert!(fd.poll_read_io(&mut cx, |_| Ok::<u8, io::Error>(1)).is_ready());
   });
 }
+
+// try_read_ready / try_write_ready observe one direction's flag: set from the
+// start (invariant 5), cleared only by that direction's WouldBlock
+// (invariant 2), set again by the next edge at a park (invariant 1). They take
+// no context, so they register no waker.
+#[test]
+fn try_ready_observes_one_direction() {
+  let (rt, os) = mock_runtime();
+  run(&rt, async {
+    let fd = AsyncFd::new(40).unwrap();
+    let rid = fd.resource_id();
+    assert!(readiness::is_readable(rid) && readiness::is_writable(rid));
+    let guard = fd.try_write_ready().unwrap().expect("writable from the start");
+    let r: io::Result<()> = guard.try_io(|_| Err(io::Error::from(ErrorKind::WouldBlock)));
+    assert_eq!(r.unwrap_err().kind(), ErrorKind::WouldBlock);
+    assert!(fd.try_write_ready().unwrap().is_none(), "a write WouldBlock left the write flag set");
+    assert!(fd.try_read_ready().unwrap().is_some(), "a write WouldBlock cleared the read flag");
+    // A success leaves the flag set.
+    let guard = fd.try_read_ready().unwrap().expect("readable from the start");
+    assert_eq!(guard.try_io(|_| Ok(3usize)).unwrap(), 3);
+    assert!(fd.try_read_ready().unwrap().is_some(), "a successful read cleared the read flag");
+    // The next write edge, delivered at a park, sets the write flag again.
+    assert!(os.ready(40, false, true));
+    sleep(Duration::from_millis(10)).await;
+    assert!(fd.try_write_ready().unwrap().is_some(), "the write edge did not set the write flag");
+  });
+}
+
+// AsyncFd is Send and Sync with no `unsafe impl`: every operation first checks
+// that the thread's current reactor is the one it registered with, and that
+// identity (the reactor epoch) is process-wide. Moved to another thread, whose
+// own reactor numbers its rids from 1 again, it fails closed: observation and
+// polls return an error, and its drop leaves that reactor's resource with the
+// same rid alone. Its own registration is left to its reactor.
+#[test]
+fn asyncfd_moved_to_another_thread_fails_closed() {
+  fn assert_send_sync<T: Send + Sync>() {}
+  assert_send_sync::<AsyncFd>();
+
+  let (rt1, os1) = mock_runtime();
+  let moved = rt1.block_on(async { AsyncFd::new(30).unwrap() });
+  let moved_rid = moved.resource_id();
+  let other = std::thread::spawn(move || {
+    let (rt2, os2) = mock_runtime();
+    let os = os2.clone();
+    rt2.block_on(async move {
+      let own = AsyncFd::new(31).unwrap();
+      assert_eq!(own.resource_id(), moved_rid, "the scenario needs the two reactors' rids to collide");
+      assert!(moved.try_read_ready().is_err(), "a moved AsyncFd observed another reactor's flags");
+      assert!(moved.try_write_ready().is_err(), "a moved AsyncFd observed another reactor's flags");
+      let polled = poll_fn(|cx| Poll::Ready(moved.poll_write_ready(cx).map(|r| r.map(|g| g.fd())))).await;
+      assert!(matches!(polled, Poll::Ready(Err(_))), "a moved AsyncFd was usable under another thread's reactor");
+      drop(moved);
+      assert!(os.is_registered(31), "dropping the moved AsyncFd deregistered this reactor's resource");
+      assert_eq!(os.stats().deregisters, 0);
+      assert_eq!(readiness::live_entries(), 1);
+      drop(own);
+    });
+    os2.registered()
+  });
+  assert_eq!(other.join().unwrap(), 0);
+  assert!(os1.is_registered(30), "the moved AsyncFd's registration is its own reactor's to release");
+  assert_eq!(os1.stats().deregisters, 0);
+  drop(rt1);
+}
