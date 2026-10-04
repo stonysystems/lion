@@ -10,25 +10,68 @@ license = "MIT"
 vstd = { git = "https://github.com/verus-lang/verus", rev = "db81a74" }
 lion-utility-spec = { path = "lion-utility-spec", package = "lion-utility-spec" }
 lion-framework-spec = { path = "../lion-framework-spec", package = "lion-framework-spec" }
-# Only this crate's `mio` feature turns on the runtime's mio backend (the
-# sockets below always use mio for their syscalls, whatever backend polls them).
 lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false }
 lion-executor = { path = "../lion-executor", package = "lion-executor", default-features = false }
-# The verified io kernel (net::tcp::{kernel, method, proof}).
+# The verified io kernel (net::tcp::{kernel, method, proof}) and the OS-free
+# TCP stream and listener the sockets below are built on.
 lion-net = { path = "../lion-net", package = "lion-net" }
-mio = { version = "1.0", features = ["os-poll", "net"] }
-socket2 = { version = "0.5", features = ["all"] }
-tokio = { version = "1", default-features = false, features = ["io-util"] }
+# Feature `mio` only: the runtime's mio backend, and the tokio-shaped sockets
+# (net::{TcpStream, TcpListener, TcpSocket, UdpSocket}), which own mio and
+# socket2 sockets and implement tokio's AsyncRead/AsyncWrite over lion-net.
+mio = { version = "1.0", features = ["os-poll", "net"], optional = true }
+socket2 = { version = "0.5", features = ["all"], optional = true }
+tokio = { version = "1", default-features = false, features = ["io-util"], optional = true }
 
 [features]
 default = ["mio"]
-mio = ["lion-reactor/mio", "lion-executor/mio"]
+mio = ["dep:mio", "dep:socket2", "dep:tokio", "lion-reactor/mio", "lion-executor/mio"]
 
 [dev-dependencies]
 # The in-process mock OS backend (lion_reactor::os::mock) for backend tests.
 lion-reactor = { path = "../lion-reactor", package = "lion-reactor", default-features = false, features = ["test-backend"] }
 # mio::unix::pipe for the AsyncFd tests.
 mio = { version = "1.0", features = ["os-ext"] }
+
+# These tests run a runtime over the mio backend (Runtime::new) or use the
+# tokio-shaped sockets, so they need the `mio` feature. Without it,
+# `cargo test --no-default-features` runs the rest (cancel, decisions, the
+# unit tests and doctests). lion-executor's tests run the runtime over the
+# mock backend without mio, and lion-net's mock tests the TCP core.
+[[test]]
+name = "async_fd"
+required-features = ["mio"]
+
+[[test]]
+name = "bounded_memory"
+required-features = ["mio"]
+
+[[test]]
+name = "foreign_wake"
+required-features = ["mio"]
+
+[[test]]
+name = "panic_abort"
+required-features = ["mio"]
+
+[[test]]
+name = "reactor_waker"
+required-features = ["mio"]
+
+[[test]]
+name = "runtime_nesting"
+required-features = ["mio"]
+
+[[test]]
+name = "spawn_local"
+required-features = ["mio"]
+
+[[test]]
+name = "tcp_glue"
+required-features = ["mio"]
+
+[[test]]
+name = "tick"
+required-features = ["mio"]
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }

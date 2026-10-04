@@ -1,34 +1,29 @@
-// Trusted glue: a real UdpSocket wrapping the verified IoKernel (one kernel for
-// the socket; recv uses the Read direction, send the Write direction). Like the
-// TCP glue, the kernel decides Arm-vs-Complete at the points where the real
-// reactor effects (set_waker) happen, so the logical event log stays faithful.
-// recv_from/send_to take &self (matching tokio), so the kernel sits behind an
-// UnsafeCell (thread-per-core ⇒ sound). verus::trusted under Verus, plain Rust
-// under cargo.
+// Trusted glue: Lion's UdpSocket (feature `mio`): a mio socket that owns the
+// fd, plus lion-net's stream core, which registers it and drives recv (Read)
+// and send (Write) polls through the verified IoKernel and lion-reactor's
+// AsyncFd. The core is fd-generic and clears readiness only on WouldBlock
+// (never on a short transfer), which is what a datagram socket needs: one edge
+// may stand for several queued datagrams. recv_from/send_to take &self
+// (matching tokio), so the core sits in a Mutex: Send and Sync with no
+// `unsafe impl`, never contended on Lion's thread-per-core runtime.
+// verus::trusted under Verus, plain Rust under cargo.
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 
 use crate::net::addr::ToSocketAddrs;
-use crate::net::tcp::kernel::{IoAction, IoKernel};
-use crate::net::tcp::method::IoMethod;
-use lion_executor::create_reactor_waker_for_current;
-use lion_reactor::readiness;
-use lion_reactor::{Interest, IoResult, ReactorHandle, ResourceId, Source, Waker};
-use std::cell::UnsafeCell;
 use std::future::Future;
 use std::io::{ErrorKind, Result};
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use std::pin::Pin;
+use std::sync::Mutex;
 use std::task::{Context, Poll};
 
+// Fields drop in declaration order: `core` deregisters the fd before `inner`
+// closes it.
 pub struct UdpSocket {
+  core: Mutex<lion_net::TcpStream>,
   inner: mio::net::UdpSocket,
-  resource_id: ResourceId,
-  kernel: UnsafeCell<IoKernel>,
 }
-
-unsafe impl Send for UdpSocket {}
-unsafe impl Sync for UdpSocket {}
 
 impl UdpSocket {
   pub async fn bind<A: ToSocketAddrs>(addr: A) -> Result<UdpSocket> {
@@ -46,15 +41,8 @@ impl UdpSocket {
   }
 
   fn new(socket: mio::net::UdpSocket) -> Result<UdpSocket> {
-    let handle = ReactorHandle::new();
-    let mut source = Source::new(socket.as_raw_fd());
-    let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE_WRITABLE) {
-      IoResult::Ok(id) => id,
-      IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),
-    };
-    readiness::init_readiness(resource_id);
-    let kernel = IoKernel::new(resource_id.0);
-    Ok(UdpSocket { inner: socket, resource_id, kernel: UnsafeCell::new(kernel) })
+    let core = lion_net::TcpStream::from_raw_fd(socket.as_raw_fd())?;
+    Ok(UdpSocket { core: Mutex::new(core), inner: socket })
   }
 
   pub fn from_std(socket: std::net::UdpSocket) -> Result<UdpSocket> {
@@ -73,6 +61,10 @@ impl UdpSocket {
   pub async fn send_to(&self, buf: &[u8], target: SocketAddr) -> Result<usize> {
     SendTo { socket: self, buf, target }.await
   }
+
+  fn core(&self) -> std::sync::MutexGuard<'_, lion_net::TcpStream> {
+    self.core.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
 }
 
 struct RecvFrom<'a> {
@@ -83,34 +75,12 @@ struct RecvFrom<'a> {
 impl<'a> Future for RecvFrom<'a> {
   type Output = Result<(usize, SocketAddr)>;
 
-  fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
-    let handle = ReactorHandle::new();
-    let rid = this.socket.resource_id;
-
-    let was_ready = readiness::is_readable(rid);
-    let mut would_block = false;
-    let mut completed: Poll<Result<(usize, SocketAddr)>> = Poll::Pending;
-    if was_ready {
-      match this.socket.inner.recv_from(this.buf) {
-        Ok((n, addr)) => completed = Poll::Ready(Ok((n, addr))),
-        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-          would_block = true;
-          readiness::clear_readable(rid);
-        }
-        Err(e) => completed = Poll::Ready(Err(e)),
-      }
-    }
-
-    let kernel = unsafe { &mut *this.socket.kernel.get() };
-    match kernel.poll_step(IoMethod::Read, was_ready, would_block) {
-      IoAction::Arm => {
-        let waker = Waker::from_std(create_reactor_waker_for_current());
-        handle.set_waker(rid, Interest::READABLE, waker);
-        Poll::Pending
-      }
-      IoAction::Complete => completed,
-    }
+    let socket = this.socket;
+    let buf = &mut *this.buf;
+    let mut core = socket.core();
+    core.poll_read_with(cx, |_fd| socket.inner.recv_from(buf))
   }
 }
 
@@ -123,42 +93,11 @@ struct SendTo<'a> {
 impl<'a> Future for SendTo<'a> {
   type Output = Result<usize>;
 
-  fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
-    let handle = ReactorHandle::new();
-    let rid = this.socket.resource_id;
-
-    let was_ready = readiness::is_writable(rid);
-    let mut would_block = false;
-    let mut completed: Poll<Result<usize>> = Poll::Pending;
-    if was_ready {
-      match this.socket.inner.send_to(this.buf, this.target) {
-        Ok(n) => completed = Poll::Ready(Ok(n)),
-        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-          would_block = true;
-          readiness::clear_writable(rid);
-        }
-        Err(e) => completed = Poll::Ready(Err(e)),
-      }
-    }
-
-    let kernel = unsafe { &mut *this.socket.kernel.get() };
-    match kernel.poll_step(IoMethod::Write, was_ready, would_block) {
-      IoAction::Arm => {
-        let waker = Waker::from_std(create_reactor_waker_for_current());
-        handle.set_waker(rid, Interest::WRITABLE, waker);
-        Poll::Pending
-      }
-      IoAction::Complete => completed,
-    }
-  }
-}
-
-impl Drop for UdpSocket {
-  fn drop(&mut self) {
-    let handle = ReactorHandle::new();
-    let mut source = Source::new(self.inner.as_raw_fd());
-    let _ = handle.deregister_io_resource(self.resource_id, &mut source);
-    self.kernel.get_mut().drop_step();
+    let socket = this.socket;
+    let (buf, target) = (this.buf, this.target);
+    let mut core = socket.core();
+    core.poll_write_with(cx, |_fd| socket.inner.send_to(buf, target))
   }
 }

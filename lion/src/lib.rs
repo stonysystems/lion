@@ -97,7 +97,10 @@ pub mod io {
 pub mod net {
   // TCP comes from the formally verified lion-utility crate; UdpSocket is not
   // yet ported, so it still comes from the legacy unverified crate.
+  // The tokio-shaped sockets exist with lion-utility's `mio` feature only.
+  #[cfg(feature = "mio")]
   pub use lion_utility_verified::net::{TcpListener, TcpSocket, TcpStream, ToSocketAddrs};
+  #[cfg(feature = "mio")]
   pub use lion_utility_verified::net::UdpSocket;
 }
 

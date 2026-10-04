@@ -1,31 +1,27 @@
-// Trusted glue: a real TcpStream wrapping the verified IoKernel. This whole
-// module is the trust boundary (mio sockets, real syscalls, Pin/Waker, the
-// reactor) — `verus::trusted` under Verus, plain Rust under cargo. The kernel's
-// verified poll_step/new/drop_step are invoked at exactly the points where the
-// real reactor effects happen (register / set_waker / deregister), so the logical
-// event log it maintains stays faithful to the real I/O.
+// Trusted glue: Lion's tokio-shaped TcpStream (feature `mio`): a mio socket
+// that owns the fd, plus lion-net's TcpStream, which registers it and drives
+// every poll through the verified IoKernel and lion-reactor's AsyncFd. This
+// whole module is the trust boundary — `verus::trusted` under Verus, plain Rust
+// under cargo. It writes no readiness protocol of its own: every flag is read,
+// cleared and waited on through lion-net (hence AsyncFd).
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 
 use crate::net::addr::ToSocketAddrs;
-use crate::net::tcp::kernel::{IoAction, IoKernel};
-use crate::net::tcp::method::IoMethod;
-use lion_executor::create_reactor_waker_for_current;
-use lion_reactor::readiness;
-use lion_reactor::{Interest, IoResult, ReactorHandle, ResourceId, Source, Waker};
-use std::cell::UnsafeCell;
+use lion_reactor::{Interest, ResourceId};
 use std::future::Future;
 use std::io::{ErrorKind, Read, Result, Write};
 use std::net::SocketAddr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+// Fields drop in declaration order: `core` deregisters the fd before `inner`
+// closes it.
 pub struct TcpStream {
+  core: lion_net::TcpStream,
   inner: mio::net::TcpStream,
-  resource_id: ResourceId,
-  kernel: IoKernel,
 }
 
 impl TcpStream {
@@ -49,15 +45,8 @@ impl TcpStream {
   }
 
   pub(crate) fn from_mio(stream: mio::net::TcpStream) -> Result<TcpStream> {
-    let handle = ReactorHandle::new();
-    let mut source = Source::new(stream.as_raw_fd());
-    let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE_WRITABLE) {
-      IoResult::Ok(id) => id,
-      IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),
-    };
-    readiness::init_readiness(resource_id);
-    let kernel = IoKernel::new(resource_id.0);
-    Ok(TcpStream { inner: stream, resource_id, kernel })
+    let core = lion_net::TcpStream::from_raw_fd(stream.as_raw_fd())?;
+    Ok(TcpStream { core, inner: stream })
   }
 
   pub fn local_addr(&self) -> Result<SocketAddr> { self.inner.local_addr() }
@@ -65,26 +54,38 @@ impl TcpStream {
   pub fn set_nodelay(&self, nodelay: bool) -> Result<()> { self.inner.set_nodelay(nodelay) }
   pub fn nodelay(&self) -> Result<bool> { self.inner.nodelay() }
 
-  pub fn resource_id(&self) -> ResourceId { self.resource_id }
-
-  pub fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<Result<()>> {
-    if readiness::is_readable(self.resource_id) {
-      Poll::Ready(Ok(()))
-    } else {
-      cx.waker().wake_by_ref();
-      Poll::Pending
-    }
+  pub fn resource_id(&self) -> ResourceId {
+    self.core.resource_id().expect("a live stream is registered")
   }
 
-  pub fn try_io<R, I>(&self, _interest: I, f: impl FnOnce() -> Result<R>) -> Result<R> {
-    match f() {
-      Ok(v) => Ok(v),
-      Err(e) if e.kind() == ErrorKind::WouldBlock => {
-        readiness::clear_readable(self.resource_id);
-        Err(e)
-      }
-      Err(e) => Err(e),
+  /// Ready when the stream may be readable; otherwise `Pending` with
+  /// `cx.waker()` registered for the next read edge. (It used to wake the
+  /// task at once and return `Pending`, a busy loop.)
+  pub fn poll_read_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+    self.core.poll_read_ready(cx)
+  }
+
+  /// As [`poll_read_ready`](TcpStream::poll_read_ready), for writability.
+  pub fn poll_write_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+    self.core.poll_write_ready(cx)
+  }
+
+  /// Runs `f` if the stream may be ready in the direction `interest` names,
+  /// and clears that direction's readiness iff `f` returns `WouldBlock`;
+  /// returns `WouldBlock` without running `f` if it is not ready. An interest
+  /// naming both directions is treated as readable, and one naming neither
+  /// returns `WouldBlock`. The interest is Lion's (`lion_reactor::Interest`,
+  /// `lion::io::Interest` in the facade), not tokio's. (It used to accept
+  /// any type, run `f` regardless of readiness and always clear the *read*
+  /// readiness, whatever the interest.)
+  pub fn try_io<R>(&self, interest: Interest, f: impl FnOnce() -> Result<R>) -> Result<R> {
+    if interest.readable {
+      return self.core.try_read_io(|_fd| f());
     }
+    if interest.writable {
+      return self.core.try_write_io(|_fd| f());
+    }
+    Err(std::io::Error::from(ErrorKind::WouldBlock))
   }
 }
 
@@ -101,77 +102,30 @@ impl std::fmt::Debug for TcpStream {
 }
 
 impl AsyncRead for TcpStream {
-  fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<Result<()>> {
+  fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<Result<()>> {
     let this = self.get_mut();
-    let handle = ReactorHandle::new();
-
-    // Observe the raw facts; the kernel decides Arm vs Complete.
-    let was_ready = readiness::is_readable(this.resource_id);
-    let mut would_block = false;
-    let mut completed: Poll<Result<()>> = Poll::Ready(Ok(()));
-    if was_ready {
-      let unfilled = unsafe {
-        let u = buf.unfilled_mut();
-        std::slice::from_raw_parts_mut(u.as_mut_ptr() as *mut u8, u.len())
-      };
-      let len = unfilled.len();
-      match this.inner.read(unfilled) {
-        Ok(n) => {
-          if 0 < n && n < len { readiness::clear_readable(this.resource_id); }
-          unsafe { buf.assume_init(n); }
-          buf.advance(n);
-          completed = Poll::Ready(Ok(()));
-        }
-        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-          would_block = true;
-          readiness::clear_readable(this.resource_id);
-        }
-        Err(e) => { completed = Poll::Ready(Err(e)); }
+    let inner = &this.inner;
+    let unfilled = unsafe {
+      let u = buf.unfilled_mut();
+      std::slice::from_raw_parts_mut(u.as_mut_ptr() as *mut u8, u.len())
+    };
+    match this.core.poll_read_with(cx, |_fd| { let mut r = inner; r.read(unfilled) }) {
+      Poll::Ready(Ok(n)) => {
+        unsafe { buf.assume_init(n); }
+        buf.advance(n);
+        Poll::Ready(Ok(()))
       }
-    }
-
-    match this.kernel.poll_step(IoMethod::Read, was_ready, would_block) {
-      IoAction::Arm => {
-        let waker = Waker::from_std(create_reactor_waker_for_current());
-        handle.set_waker(this.resource_id, Interest::READABLE, waker);
-        Poll::Pending
-      }
-      IoAction::Complete => completed,
+      Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+      Poll::Pending => Poll::Pending,
     }
   }
 }
 
 impl AsyncWrite for TcpStream {
-  fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
+  fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
     let this = self.get_mut();
-    let handle = ReactorHandle::new();
-
-    let was_ready = readiness::is_writable(this.resource_id);
-    let mut would_block = false;
-    let mut completed: Poll<Result<usize>> = Poll::Ready(Ok(0));
-    if was_ready {
-      let len = buf.len();
-      match this.inner.write(buf) {
-        Ok(n) => {
-          if 0 < n && n < len { readiness::clear_writable(this.resource_id); }
-          completed = Poll::Ready(Ok(n));
-        }
-        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-          would_block = true;
-          readiness::clear_writable(this.resource_id);
-        }
-        Err(e) => { completed = Poll::Ready(Err(e)); }
-      }
-    }
-
-    match this.kernel.poll_step(IoMethod::Write, was_ready, would_block) {
-      IoAction::Arm => {
-        let waker = Waker::from_std(create_reactor_waker_for_current());
-        handle.set_waker(this.resource_id, Interest::WRITABLE, waker);
-        Poll::Pending
-      }
-      IoAction::Complete => completed,
-    }
+    let inner = &this.inner;
+    this.core.poll_write_with(cx, |_fd| { let mut w = inner; w.write(buf) })
   }
 
   fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
@@ -186,58 +140,58 @@ impl AsyncWrite for TcpStream {
 }
 
 // ── into_split: two owned halves sharing one TcpStream (hence one IoKernel) ──
-// thread-per-core ⇒ no cross-thread sharing of a stream ⇒ the UnsafeCell + unsafe
-// Send is sound. Both halves' polls go through the SAME verified IoKernel, so this
-// adds no new proof obligation — it reuses the stream's verified poll path.
+// The halves share the stream through a Mutex, so they are Send and Sync by
+// construction, with no `unsafe impl`. On Lion's thread-per-core runtime both
+// halves are polled on the stream's reactor thread, so the lock is never
+// contended; polled from another thread, the stream fails closed (AsyncFd's
+// reactor check). Both halves' polls go through the SAME verified IoKernel.
 pub struct OwnedReadHalf {
-  inner: Arc<UnsafeCell<TcpStream>>,
+  inner: Arc<Mutex<TcpStream>>,
 }
 
 pub struct OwnedWriteHalf {
-  inner: Arc<UnsafeCell<TcpStream>>,
+  inner: Arc<Mutex<TcpStream>>,
 }
-
-unsafe impl Send for OwnedReadHalf {}
-unsafe impl Send for OwnedWriteHalf {}
 
 impl TcpStream {
   pub fn into_split(self) -> (OwnedReadHalf, OwnedWriteHalf) {
-    let arc = Arc::new(UnsafeCell::new(self));
+    let arc = Arc::new(Mutex::new(self));
     (OwnedReadHalf { inner: arc.clone() }, OwnedWriteHalf { inner: arc })
   }
 }
 
+fn lock(stream: &Mutex<TcpStream>) -> std::sync::MutexGuard<'_, TcpStream> {
+  stream.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl AsyncRead for OwnedReadHalf {
   fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<Result<()>> {
-    let stream = unsafe { &mut *self.inner.get() };
-    Pin::new(stream).poll_read(cx, buf)
+    let mut stream = lock(&self.inner);
+    Pin::new(&mut *stream).poll_read(cx, buf)
   }
 }
 
 impl AsyncWrite for OwnedWriteHalf {
   fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-    let stream = unsafe { &mut *self.inner.get() };
-    Pin::new(stream).poll_write(cx, buf)
+    let mut stream = lock(&self.inner);
+    Pin::new(&mut *stream).poll_write(cx, buf)
   }
   fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-    let stream = unsafe { &mut *self.inner.get() };
-    Pin::new(stream).poll_flush(cx)
+    let mut stream = lock(&self.inner);
+    Pin::new(&mut *stream).poll_flush(cx)
   }
   fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-    let stream = unsafe { &mut *self.inner.get() };
-    Pin::new(stream).poll_shutdown(cx)
+    let mut stream = lock(&self.inner);
+    Pin::new(&mut *stream).poll_shutdown(cx)
   }
 }
 
-impl Drop for TcpStream {
-  fn drop(&mut self) {
-    let handle = ReactorHandle::new();
-    let mut source = Source::new(self.inner.as_raw_fd());
-    let _ = handle.deregister_io_resource(self.resource_id, &mut source);
-    self.kernel.drop_step();
-  }
-}
-
+// Waits for a non-blocking connect to finish: the stream's first write
+// readiness, through the kernel like any write wait. "Not connected yet" is
+// the connect's WouldBlock, so it alone consumes the write readiness, in the
+// poll that observed it; a completed connect leaves the readiness set for the
+// first write (the zoo-004 lesson: the connect-completion edge may be the last
+// writable edge until the send buffer fills).
 pub(crate) struct Connect {
   stream: Option<TcpStream>,
 }
@@ -248,51 +202,30 @@ impl Connect {
   }
 
   fn new(mio_stream: mio::net::TcpStream) -> Result<Self> {
-    let handle = ReactorHandle::new();
-    let mut source = Source::new(mio_stream.as_raw_fd());
-    let resource_id = match handle.register_io_resource(&mut source, Interest::READABLE_WRITABLE) {
-      IoResult::Ok(id) => id,
-      IoResult::Err(e) => return Err(std::io::Error::new(ErrorKind::Other, format!("{:?}", e))),
-    };
-    readiness::init_readiness(resource_id);
-    let kernel = IoKernel::new(resource_id.0);
-    Ok(Connect { stream: Some(TcpStream { inner: mio_stream, resource_id, kernel }) })
+    Ok(Connect { stream: Some(TcpStream::from_mio(mio_stream)?) })
   }
 }
 
 impl Future for Connect {
   type Output = Result<TcpStream>;
 
-  fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-    let stream = self.stream.as_ref().expect("Connect polled after completion");
-    let handle = ReactorHandle::new();
-
-    if readiness::is_writable(stream.resource_id) {
-      if let Some(e) = stream.inner.take_error()? {
-        return Poll::Ready(Err(e));
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let stream = self.stream.as_mut().expect("Connect polled after completion");
+    let inner = &stream.inner;
+    let connected = stream.core.poll_write_with(cx, |_fd| {
+      if let Some(e) = inner.take_error()? {
+        return Err(e);
       }
-      match stream.inner.peer_addr() {
-        // Connected: KEEP the writable flag. The socket is genuinely writable
-        // right now, and under edge-triggered epoll the connect-completion
-        // edge is the last writable edge until a full send buffer drains —
-        // clearing here would send the first poll_write into a wait for an
-        // edge that never comes (the zoo-004 lost-wakeup hang: the two-poll
-        // connect path consumed the real edge's flag and wedged the client
-        // task forever). poll_write's own WouldBlock path clears + arms with
-        // drain justification, which is the only ET-safe place to do it.
-        Ok(_) => return Poll::Ready(Ok(self.stream.take().unwrap())),
-        Err(ref e) if e.kind() == ErrorKind::NotConnected => {
-          // Not connected yet: the flag we saw was the optimistic init (or a
-          // stale signal); consume it before arming so the next wake is
-          // edge-driven.
-          readiness::clear_writable(stream.resource_id);
-        }
-        Err(e) => return Poll::Ready(Err(e)),
+      match inner.peer_addr() {
+        Ok(_) => Ok(()),
+        Err(ref e) if e.kind() == ErrorKind::NotConnected => Err(std::io::Error::from(ErrorKind::WouldBlock)),
+        Err(e) => Err(e),
       }
+    });
+    match connected {
+      Poll::Ready(Ok(())) => Poll::Ready(Ok(self.stream.take().unwrap())),
+      Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+      Poll::Pending => Poll::Pending,
     }
-
-    let waker = Waker::from_std(create_reactor_waker_for_current());
-    handle.set_waker(stream.resource_id, Interest::WRITABLE, waker);
-    Poll::Pending
   }
 }
