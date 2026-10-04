@@ -17,3 +17,8 @@ tokio = { version = "1", features = ["sync", "macros", "io-util", "rt"] }
 # Lion's default OS backend (mio), forwarded to every runtime crate.
 default = ["mio"]
 mio = ["lion-executor/mio", "lion-reactor/mio", "lion-utility-verified/mio"]
+
+# The facade tests run a real runtime, which needs the mio backend.
+[[test]]
+name = "facade"
+required-features = ["mio"]

@@ -88,6 +88,10 @@ pub mod io {
   // extension traits are runtime-agnostic, so re-export tokio's io surface to
   // match its API (lets the same source use `<rt>::io::AsyncReadExt`).
   pub use tokio::io::*;
+  // The readiness interest `net::TcpStream::try_io` takes: Lion's, not
+  // tokio's (which exists only when some crate in the graph enables tokio's
+  // `net` feature, and which this name shadows then).
+  pub use lion_reactor::Interest;
 }
 
 pub mod net {

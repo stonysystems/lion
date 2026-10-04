@@ -30,7 +30,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 #[cfg(target_os = "linux")]
-use tokio::io::Interest;
+use lion::io::Interest;
 use tokio::io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, BufStream, ReadBuf};
 use lion::net::TcpStream;
 #[cfg(unix)]
