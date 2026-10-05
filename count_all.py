@@ -6,6 +6,7 @@ DIRS = [
     ("lion-timer-wheel", False),
     ("lion-reactor", False),
     ("lion-executor", False),
+    ("lion-net", False),
     ("lion-utility", False),
     ("lion-liveness", True),   # spec-only: pure proof project
 ]

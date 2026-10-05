@@ -5,11 +5,11 @@ base inventoried here. This file lists, per item, exactly what is trusted and no
 verified. Regenerate the raw list with:
 
 ```
-grep -rn "external_body" lion-reactor/src lion-executor/src lion-timer-wheel/src lion-slab/src lion-utility/src
+grep -rn "external_body" lion-reactor/src lion-executor/src lion-timer-wheel/src lion-slab/src lion-utility/src lion-net/src
 ```
 
 **Count**: 119 trusted `external_body` items — lion-reactor 58, lion-executor 54,
-lion-timer-wheel 7, lion-slab 0, lion-utility 0. By trust kind: 22 `semantic`,
+lion-timer-wheel 7, lion-slab 0, lion-utility 0, lion-net 0. By trust kind: 22 `semantic`,
 26 `ghost-log`, 46 `raw`, 25 `view` (definitions in §3). Every item carries its
 own attribute line, so the grep above finds exactly the items (the two ghost-log
 families used to expand from `macro_rules!`, whose one attribute line stood for
@@ -156,25 +156,40 @@ theorems:
   is the dedicated environment constant `get_io_ready_bound` (uninterpreted),
   decoupled from the task-completion bound `cap`; the proof budget is
   chunk = K + B + C + cap + 2 with B the io bound (io wake window B + 1 rounds).
-- **`AsyncFd` waits are outside the modeled io path** (trusted glue; delivery
-  unaffected): the composed model ties a task's io wait to the utility io
-  kernel's log and routes the reactor's wake for it into the next
+- **`AsyncFd` waits, and with them every TCP and UDP wait, are outside the
+  modeled io path** (trusted glue; delivery unaffected): the composed model's
+  io path routes the reactor's wake for an io wait into the next
   `Drain{ReactorWake}` (`reactor_wake_arrival` / `reactor_wake_drain_step`,
-  `lion-liveness/src/composed/spec/wake_queues.rs`), which matches the reactor
-  waker that lion-utility's TCP and UDP glue register
-  (`create_reactor_waker_for_current`). `AsyncFd` writes no utility log and
-  registers the caller's `cx.waker()`: for a task's own waker that is a
-  `WakeSource::Task` waker, whose wake lands in the TaskWake queue (as `Sleep`'s
-  timer wake already does, a deviation documented in
+  `lion-liveness/src/composed/spec/wake_queues.rs`), which matched the
+  reactor waker (`create_reactor_waker_for_current`) that
+  lion-utility's TCP and UDP glue registered until they were rebuilt on
+  lion-net. `AsyncFd` registers the caller's `cx.waker()`, and so now do
+  lion-net's `TcpStream` and `TcpListener` and lion-utility's tokio-shaped
+  `TcpStream`, `TcpListener` and `UdpSocket` on top of them, which wait
+  through `AsyncFd`: for a task's own waker that is a `WakeSource::Task`
+  waker, whose wake lands in the TaskWake queue (as `Sleep`'s timer wake
+  already does, a deviation documented in
   `lion-utility/src/time/sleep/future.rs`), and for a combinator's waker it is
-  whatever the combinator does. The executor drains both queues at the same
-  points (`next_task` and `park`), so the task is polled as promptly, but the
-  theorem's io obligation says nothing about an `AsyncFd` wait. The caller's
-  waker is needed for correctness: a combinator that polls a sub-future with a
-  waker of its own is otherwise never told which sub-future to re-poll.
-  Routing a wake by the context that fires it (the reactor's dispatch) instead
-  of by the waker's source would align the queue; bringing an `AsyncFd` wait
-  into the theorem would also need it to drive the io kernel's log.
+  whatever the combinator does. So a TCP or UDP wake is a TaskWake wake. The
+  executor drains both queues at the same points (`next_task` and `park`), so
+  the task is polled as promptly, but the theorem's io obligation says
+  nothing about these waits. lion-net's waits do drive the verified
+  `IoKernel` and append to its log, but that log is a per-utility `IoKernel`
+  log: no utility kernel has a machine-checked link to the composed theorem
+  (the vocabularies differ; see "Honest chain" in §4), and the kernel's waker
+  is a ghost `arbitrary()`. What the kernel adds is a machine-checked
+  suspend-or-complete decision (`Arm` exactly when the socket was not ready
+  or the operation would block), with `Pending` reachable only through `Arm`.
+  The caller's waker is needed for correctness: a combinator that polls a
+  sub-future with a waker of its own is otherwise never told which
+  sub-future to re-poll. Restoring the composed-model match would mean
+  registering a reactor-source waker when `cx.waker()` is the task's own (the
+  executor would have to cache one waker per task: it makes a fresh one on
+  every poll, so `Waker::will_wake` never recognises it) and the caller's
+  otherwise, or routing a wake by the context that fires it (the reactor's
+  dispatch) instead of by the waker's source; bringing a wait into the
+  theorem would also need a link from the utility io log to the composed
+  model.
 
 - **The model's clock is idealized to strict monotonicity** (environment
   idealization; identified by audit): the env clause
@@ -416,6 +431,12 @@ No `external_body` attributes — but NOT trust-free: its trust is structured
 differently (whole-module trusted glue rather than per-function edges). See the
 dedicated "lion-utility (glue layer)" section under §4 below.
 
+### lion-net (0 items)
+
+No `external_body` attributes. Like lion-utility, its trust is whole-module
+glue around a verified kernel (the io kernel moved here from lion-utility);
+see "lion-net (TCP stream and listener over a raw fd)" under §4.
+
 ---
 
 ## 4. Per-crate trust summaries
@@ -441,23 +462,26 @@ hold no `unsafe`.
 | src/os/mod.rs | `OsBackend`, `OsInterrupt`, `OsEvent` | the seam itself, object safe (`Box<dyn OsBackend>` in the reactor's `Poll`, `Arc<dyn OsInterrupt>` in `InterruptHandle`, so one dynamic call per park and per registration). Its doc comment is the contract a backend must meet: edge-triggered reports (every transition to ready reported again, none swallowed), mio's flag meanings, error and hang-up delivered whatever the interest, tokens returned verbatim (the reactor never registers token 0), `wait` timeouts (`None` blocks, zero polls; `EINTR` is an empty wait), and an interrupt callable from any thread that ends the current or next wait and is consumed inside `wait`, never reported as an event |
 | src/os/mio_backend.rs | `MioBackend` (feature `mio`, default) | Lion's former direct mio code behind the trait: fds registered through `mio::unix::SourceFd` (the same epoll registration mio's socket types make: edge-triggered, `EPOLLRDHUP`), mio's eventfd `Waker` under token 0 as the interrupt, filtered out of the returned events (it used to reach the reactor as a harmless event for rid 0), and an interrupted wait (`EINTR`) returned as an empty one instead of an error |
 | src/os/mock.rs | `MockBackend` / `MockOs` (feature `test-backend`, never in a default build) | an in-process backend for tests: the test injects readiness edges for fake fds, masked by the registered interest, merged per fd while pending, dropped on deregistration; the interrupt ends the current or next wait and is consumed by it |
-| src/async_fd.rs | `AsyncFd` / `AsyncFdReadyGuard` | the one general implementation of the edge-triggered readiness protocol over the `IO_READINESS` flags (`src/readiness.rs`). Its module comment states the five invariants: only a park sets a flag; only an operation that returned `WouldBlock` clears one, in the same poll (`AsyncFdReadyGuard::try_io` is the only clearing site, so clearing on a success, the lost wakeup of HANG_FIXING_STORY.md story 1, cannot be expressed); a poll registers `cx.waker()` for the direction, re-reads the flag and only then returns `Pending`; the caller's waker is stored (no allocation per wait; combinators woken correctly), one waiter per direction; both flags start set. Registration is READABLE+WRITABLE once; the fd is never read, written, closed or put in non-blocking mode by `AsyncFd`, and must stay open until it drops. `!Send`. Every operation checks that the thread's current reactor is the one it registered with (see the next row) and fails otherwise; drop deregisters (which also removes the readiness entry) only under that reactor. lion-utility's TCP, UDP and listener glue still carry their own copies of the protocol, driven by the verified `IoKernel` and the reactor waker |
-| src/reactor/enter.rs, src/readiness.rs | reactor identity, readiness lifetime | each reactor entered on a thread gets a fresh identity number (`current_reactor_epoch`), so an `AsyncFd` never acts on a successor reactor that reuses the address and, numbering its rids from 1 again, the rid. `ReactorGuard`'s drop now also clears the thread's readiness table (`readiness::clear_all`): its entries belong to the reactor leaving. `readiness::live_entries` counts entries for tests |
+| src/async_fd.rs | `AsyncFd` / `AsyncFdReadyGuard` | the one general implementation of the edge-triggered readiness protocol over the `IO_READINESS` flags (`src/readiness.rs`). Its module comment states the five invariants: only a park sets a flag; only an operation that returned `WouldBlock` clears one, in the same poll (`AsyncFdReadyGuard::try_io` is the only clearing site, so clearing on a success, the lost wakeup of HANG_FIXING_STORY.md story 1, cannot be expressed); a poll registers `cx.waker()` for the direction, re-reads the flag and only then returns `Pending`; the caller's waker is stored (no allocation per wait; combinators woken correctly), one waiter per direction; both flags start set. Registration is READABLE+WRITABLE once; the fd is never read, written, closed or put in non-blocking mode by `AsyncFd`, and must stay open until it drops. `Send` and `Sync` with no `unsafe impl`: it holds plain numbers, and every operation checks that the thread's current reactor is the one it registered with (see the next row) and fails otherwise, so moved to another thread it fails closed; drop deregisters (which also removes the readiness entry) only under that reactor, and elsewhere leaves the registration to it. The ready guard stays `!Send` (a `PhantomData<*const ()>`; a `compile_fail` doctest pins it), since it clears a flag without the check. `try_read_ready` / `try_write_ready` observe one direction's flag without registering a waker, and `resource_id` exposes the rid, for a caller that makes its own wait decision: lion-net's stream and listener, which carry no readiness protocol of their own, and through them lion-utility's TCP and UDP sockets |
+| src/reactor/enter.rs, src/readiness.rs | reactor identity, readiness lifetime | each reactor entered gets a fresh identity number (`current_reactor_epoch`), drawn from one process-wide `AtomicU64`, so an `AsyncFd` never acts on a successor reactor that reuses the address and, numbering its rids from 1 again, the rid, nor (it is `Send`) on another thread's reactor, which numbers its rids from 1 too. `ReactorGuard`'s drop now also clears the thread's readiness table (`readiness::clear_all`): its entries belong to the reactor leaving. `readiness::live_entries` counts entries for tests |
 | src/types/interrupt_handle.rs | `InterruptHandleInner` | the coalescing wake: `wake` signals the backend only on the first wake since the owner's `reset`, and the executor resets before it drains its cross-thread queue and parks (unchanged; it now holds the backend's `OsInterrupt` instead of a `mio::Waker`) |
 
 The reactor now depends on mio only through the `mio` feature (`default =
 ["mio"]`), which lion-executor, lion-utility and the `lion` facade forward
 (each depends on the crate below with `default-features = false`). With
-`--no-default-features`, lion-reactor and lion-executor build with no mio,
-socket2 or tokio in their dependency graph, and `Runtime::new` fails with
-`ErrorKind::Unsupported` until a backend is given
+`--no-default-features`, lion-reactor, lion-executor and lion-utility build
+with no mio, socket2 or tokio in their dependency graph (lion-utility's
+tokio-shaped sockets need the feature; lion-net never has these crates), and
+`Runtime::new` fails with `ErrorKind::Unsupported` until a backend is given
 (`RuntimeBuilder::os_backend`). Regression tests: `lion-reactor/tests/os_backend.rs`
 (the reactor alone over the mock: timer, readiness, error-only event,
 interrupt) and `lion-executor/tests/os_backend.rs` (a runtime over the mock,
 also run without mio); `AsyncFd` is pinned by `lion-utility/tests/async_fd.rs`
 (echo over a socketpair and over the mock, the story-1 edge sequence with the
 old pattern as a built-in control, concurrent reader and writer on one fd, an
-error-only pipe event, drop and reactor-identity cleanup, the caller's waker).
+error-only pipe event, drop and reactor-identity cleanup, the caller's waker,
+`try_*_ready` observing one direction, and an `AsyncFd` moved to another
+thread failing closed without touching that thread's reactor).
 
 **lion-executor (54).** Scheduling plumbing: claim-free raw takers for the TLS
 wake queues and the mpsc injection channel (`try_recv_raw`,
@@ -512,7 +536,9 @@ items (`get_mut`, `values`) noted above.
 lion-utility has ZERO `external_body` attributes — that is the point: its trust is
 structured differently from the other crates. Each utility is a VERIFIED KERNEL (a
 pure Verus state machine; ~2,400 verified lines total) plus WHOLE-MODULE TRUSTED
-GLUE (~2,700 lines): every glue file carries
+GLUE (~2,700 lines; both figures as of 3496113, since when the io kernel's 398
+lines moved to lion-net and the TCP and UDP glue shrank by 172 lines, see the
+table): every glue file carries
 `#![cfg_attr(verus_keep_ghost, verus::trusted)]` and contains no `verus!{}` code at
 all — it is plain Rust that Verus never sees. Consequently the kernels' `requires`
 clauses (e.g. `signal_step`'s `permit < u64::MAX`, `ChannelKernel::fill`'s
@@ -531,18 +557,18 @@ total) guard the conventions the verifier cannot.
 | sleep | 505 | 86 |
 | timeout | 34 | 60 |
 | interval | 57 | 63 |
-| tcp | 398 | ~512 |
-| udp | reuses tcp's IoKernel (0 own) | 163 |
+| tcp | in lion-net (`IoKernel`, 398), re-exported | 413 (shells over lion-net, feature `mio`) |
+| udp | reuses lion-net's stream core (0 own) | 103 |
 | fs + task + addr | none (unverified) | ~212 |
 
 **What the kernels prove (machine-checked):** the waiter queue/permit coupling
-(`queue_view(queue) == waiters(log)`, `permit == init + available_permits(log)` —
-no phantom/lost waiters, a signal wakes the true FIFO head, exact permit
-accounting, and a verified cancellation step `remove_step` +
-`CancelWaker` event); channel FIFO with no holes / no loss / no duplication /
-capacity bounds; and decision correctness (tcp's `Arm ⟺ would-block`, timeout's
-`Pending ⟺ both sub-futures pending`, broadcast's `Lagged ⟺ cursor < oldest`,
-interval's `deadline == first + fires×period`).
+(`queue_view(queue) == waiters(log)`, `permit == init + available_permits(log)` — no
+phantom/lost waiters, a signal wakes the true FIFO head, exact permit accounting,
+and a verified cancellation step `remove_step` + `CancelWaker` event); channel FIFO
+with no holes / no loss / no duplication / capacity bounds; and decision correctness
+(tcp's `Arm ⟺ ¬ready ∨ would-block`, now in lion-net, timeout's `Pending ⟺ both
+sub-futures pending`, broadcast's `Lagged ⟺ cursor < oldest`, interval's `deadline
+== first + fires×period`).
 
 **What the glue is trusted for:** the identity binding between the real
 `std::task::Waker` and the kernel's `WakerView = int` id; the call protocol (right
@@ -551,6 +577,8 @@ ids to real wakers and move the real `T` values. Note explicitly: the
 reactor-mediated kernels (sleep, tcp) discharge the waker-matching invariant with
 FABRICATED ghost wakers (`let ghost w: WakerView = arbitrary();`) — that both the
 tick waker and the registered waker denote the real `cx.waker()` is pure trust.
+(The tcp kernel is lion-net's; lion-utility's sockets reach it only through
+lion-net's stream and listener, below.)
 The WaiterKernel is stronger here: its ids are glue-supplied and coupled to the
 verified queue.
 
@@ -577,3 +605,43 @@ mechanical consumption of every kernel decision, interval re-arming from its
 verified deadline ledger, and sleep failing loud on registration failure are
 therefore each pinned by the regression suites (`tests/cancel.rs`,
 `tests/decisions.rs`).
+
+### lion-net (TCP stream and listener over a raw fd)
+
+lion-net is the io kernel plus the glue that drives it, with no OS crate:
+it depends on vstd, the spec crates and lion-reactor without `mio`.
+lion-utility's tokio-shaped `TcpStream`, `TcpListener` and `UdpSocket`
+(feature `mio`) are shells over it that own mio sockets, and an embedder
+with its own sockets and OS backend uses it directly.
+
+| file | kind | what it is / what is trusted |
+|---|---|---|
+| src/net/tcp/{method,kernel,proof}.rs | verified (398 lines, moved byte for byte from lion-utility) | `IoKernel::{new, poll_step, drop_step}` over the utility io log. `poll_step(m, was_ready, would_block)` returns `Arm` exactly when `!was_ready \|\| would_block` and appends a segment that keeps `utility_inv` (wakeup guarantee: a `Pending` tick has an io waker set in its cycle on a still-registered resource; resource ownership). The waker in the segment is a ghost `arbitrary()` |
+| src/net/tcp/stream.rs | trusted glue | `IoResource` (shared by the stream and the listener) and `TcpStream`. One poll observes the direction's `AsyncFd` flag (`was_ready`), runs the operation through the ready guard if it is set (`would_block`: it returned `WouldBlock`; the guard clears that direction only then), calls `poll_step` with those two facts, and follows the decision: the operation's result on `Complete`; on `Arm`, `cx.waker()` registered through `AsyncFd::poll_*_ready` and `Pending` (should that registration find the flag set or fail, the caller is woken instead). Trusted: that the two facts are the real ones, that the registered waker is the one the ghost waker stands for, and the drop order (the `AsyncFd` is taken out and dropped, deregistering the fd, before `drop_step` records it, whatever order a translation destroys fields in). The stream never owns, reads, writes or closes the fd |
+| src/net/tcp/listener.rs | trusted glue | `TcpListener`: accept polls through the same `IoResource` (method `Accept`, read readiness); a completed accept leaves the flag set |
+| src/net/tcp/ops.rs | trusted seam | `SocketOps { recv, send, accept }`, the embedder's syscalls, taken as a generic `&O` so a zero-sized implementation costs no indirection. Contract: non-blocking fds; `WouldBlock` for `EAGAIN`; other errors returned as they are (`Interrupted` not retried); `recv(2)`, `send(2)` without `SIGPIPE`, `accept4(2)` returning a non-blocking close-on-exec fd the caller owns; no operation closes an fd. The closure forms (`poll_*_with`) carry the same contract |
+
+Everything readiness-related is `AsyncFd`'s (its five invariants, §4 above),
+so a short read or write, a completed accept or connect and a readiness wait
+(`poll_*_ready`) leave the flag set, and the next operation finds out. The
+stream and listener are `Send` and `Sync` with no `unsafe impl`: used off
+their reactor's thread they fail closed (an error, the operation not run,
+no waker armed) through `AsyncFd`'s reactor check, and their drop there
+leaves the registration to its reactor. Their waits are TaskWake wakes,
+outside the composed model's io path, and the kernel's log is not linked to
+the composed theorem (§2).
+
+Regression tests: `lion-net/tests/stream.rs` (real loopback sockets on the
+mio backend: an echo through a listener and two streams over `SocketOps`;
+a `WouldBlock` clearing only its own direction; a wait parking on the
+caller's waker without waking itself; a short read keeping the flag; a
+stream moved to another thread failing closed; drop) and
+`lion-net/tests/mock.rs` (the mock backend: each direction clearing,
+waiting and waking on its own; story 1's connect edge kept for the first
+write; a reader task and a writer task sharing one stream against an echo
+over 64-byte in-memory queues; accept waiting for the listener's edge; a
+stream and a listener moved to a thread whose reactor reuses their rid;
+drop deregistering on its own reactor; a stream outliving its runtime).
+lion-utility's `tests/tcp_glue.rs` pins the shells: `try_io` clearing the
+direction its interest names, `poll_read_ready` parking instead of
+spinning, and `Send` sockets and split halves echoing from spawned tasks.

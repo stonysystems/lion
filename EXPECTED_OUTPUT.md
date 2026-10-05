@@ -40,7 +40,7 @@ fully passing run. Each crate's block ends in `PASSED`:
 ### [lion-reactor] verifying
 ######################################################################
 ...
-verification results:: 206 verified, 0 errors
+verification results:: 208 verified, 0 errors
 ### [lion-reactor] PASSED
 ```
 
@@ -53,9 +53,10 @@ The counts to expect, in the order `ci.sh` runs them:
 | lion-slab | 5 |
 | lion-timer-wheel | 117 |
 | lion-reactor-spec | 57 |
-| lion-reactor | 206 |
+| lion-reactor | 208 |
 | lion-executor | 99 |
-| lion-utility | 90 |
+| lion-net | 10 |
+| lion-utility | 80 |
 | lion-liveness | 556 |
 
 and the run ends with:

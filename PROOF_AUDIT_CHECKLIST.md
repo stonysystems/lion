@@ -41,7 +41,8 @@
 - [ ] Inventory `#[verifier::external]` / `#[verifier::external_fn_specification]` /
       `assume_specification`: the parts that bypass verification entirely.
 - [ ] Inventory **file-level `verus::trusted` markers** (`grep -rln "verus::trusted"`,
-      currently 31 files): confirm one by one that each file's content really belongs
+      currently 35 files: 33 carry the marker, and `lion-utility/src/lib.rs` and
+      `lion-net/src/lib.rs` only mention it in their crate comments): confirm one by one that each file's content really belongs
       to its declared trust category (utility whole-module glue / type wrappers / OS
       boundary), that it contains **no verus!{} proof code counted as verified**, and
       no undisclosed executable logic.
@@ -54,7 +55,9 @@
 - [ ] `grep -rn "Ghost::assume_new"` returns empty (ghost values must be legitimately
       constructed via Ghost(..)).
 - [ ] Full unsafe inventory (not just slab): `grep -rn "unsafe" <crate>/src` — currently
-      executor 15 sites / utility 31 sites (waker vtable and glue), reactor 1 site.
+      (lines not containing `//`, as `tools/audit_scan.sh` counts them) executor 4
+      sites, utility 18 (31 before its TCP and UDP glue moved onto lion-net, which
+      has none), reactor 1 site.
       Confirm each site is within a disclosed trust category; TCB_and_limitations.md
       should summarize the distribution of these unsafe blocks.
 - [ ] **Plain-build warning budget**: `cargo build` warning count (currently 219 for

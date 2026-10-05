@@ -162,7 +162,8 @@ sets up the pinned Rust toolchain and Verus (into `verus-toolchain/`). Then:
 `./ci.sh` runs each verified crate's `verify.sh` — the four shared spec crates
 (`lion-framework-spec`, `lion-executor-spec`, `lion-reactor-spec`,
 `lion-utility-spec`), the leaf data structures (`lion-slab`, `lion-timer-wheel`),
-the runtime core (`lion-reactor`, `lion-executor`), `lion-utility`, and finally
+the runtime core (`lion-reactor`, `lion-executor`), `lion-net` (the io kernel
+and Lion's TCP stream and listener over a raw fd), `lion-utility`, and finally
 the composing `lion-liveness`. A full run takes a few minutes on a modern
 multi-core machine (the SMT-heavy `lion-liveness` crate itself verifies in well
 under a minute).

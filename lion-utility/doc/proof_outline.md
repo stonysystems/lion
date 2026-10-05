@@ -57,11 +57,11 @@ lion-liveness.
 - Invariant: `utility_inv` (wakeup goes through the **timer** branch; resource_ownership tracks the timer rid).
 - Trust boundary: the real clock / reactor registration; liveness is delegated to the reactor's `bounded_timer_wakeup`.
 
-### IoKernel (`net/tcp/`)
-- State: resource_id + armed + ghost log.
+### IoKernel (lion-net `net/tcp/`, re-exported as `lion_utility::net::tcp`)
+- State: `rid: Option<u64>` (the io resource; `None` after `drop_step`) + ghost log.
 - Invariant: `utility_inv` (wakeup goes through the **io** branch; resource_ownership tracks the io rid).
 - `poll_step(m, was_ready, would_block)` decides `Arm | Complete`, with `(a is Arm) <==> (!was_ready || would_block)`.
-- Trust boundary: mio syscall / readiness / set_waker; liveness is delegated to the reactor's `bounded_io_wakeup`.
+- Trust boundary: lion-net's stream and listener glue (the embedder's syscalls through `SocketOps` or a closure, `AsyncFd`'s readiness flag for `was_ready`, the caller's `cx.waker()` registered on `Arm`). Liveness is not derived here: the registered waker's wake reaches the executor's TaskWake queue, and this per-utility log has no machine-checked link to the composed model's io obligation (TCB_and_limitations.md §2).
 
 ### WaiterKernel (`sync/waiter/`) — backs Notify / Semaphore / Mutex, and the wakeup side of channels
 - State: `permit: u64` + `queue: Vec<u64>` (waiter ids) + ghost log + `init` (initial permits).
@@ -122,7 +122,8 @@ and carries the cancellation (`Drop`) paths — all guarded by regression tests
 | glue file | trusted (within §0) | call contract to the kernel |
 |---|---|---|
 | `time/sleep/future.rs` | Pin/Context, reactor registration | drives SleepKernel.poll_step |
-| `net/tcp/{stream,listener,socket}.rs`, `net/addr.rs` | mio syscall/readiness, real waker, UnsafeCell (into_split) | IoKernel.poll_step/new/drop_step |
+| lion-net `net/tcp/{stream,listener,ops}.rs` | `AsyncFd` readiness, the caller's waker, the embedder's `SocketOps` / closures | IoKernel.new/poll_step/drop_step |
+| `net/tcp/{stream,listener,socket}.rs`, `net/udp.rs`, `net/addr.rs` (feature `mio`) | mio/socket2 sockets and syscalls, tokio's AsyncRead/AsyncWrite, `Mutex` (listener, UDP, split halves); no readiness code | through lion-net's stream and listener |
 | `sync/notify.rs`, `semaphore.rs`, `mutex.rs` | Mutex/Arc/AtomicBool, real Waker | WaiterKernel.{wait,signal,try_acquire,remove}_step |
 | `sync/oneshot.rs` | Mutex/Arc, real Waker, moving `T` | OneshotKernel + WaiterKernel |
 | `sync/mpsc.rs` | Mutex/Arc, real Waker, moving `VecDeque<T>` | ChannelKernel + two WaiterKernels |

@@ -3,7 +3,7 @@
 # Any line starting with FLAG requires action before open-sourcing.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-CRATES="lion-framework-spec lion-executor-spec lion-reactor-spec lion-slab lion-timer-wheel lion-reactor lion-executor lion-utility lion-liveness"
+CRATES="lion-framework-spec lion-executor-spec lion-reactor-spec lion-slab lion-timer-wheel lion-reactor lion-executor lion-net lion-utility lion-liveness"
 flag() { echo "FLAG: $*"; FLAGS=$((FLAGS+1)); }
 FLAGS=0
 
@@ -41,7 +41,7 @@ for c in $CRATES; do
 done
 
 echo "== external_body attribute lines (grep-aux; authoritative counts in TCB_and_limitations.md) =="
-for c in lion-reactor lion-executor lion-timer-wheel lion-slab lion-utility; do
+for c in lion-reactor lion-executor lion-timer-wheel lion-slab lion-net lion-utility; do
   n=$(grep -rn "verifier::external_body" $c/src 2>/dev/null | grep -v "^\s*//" | wc -l)
   echo "  $c: $n attribute lines"
 done
