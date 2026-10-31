@@ -1,8 +1,12 @@
-# Negative control: a Tokio release in which the liveness bugs this suite
-# reproduces (#5020 current-thread, #7209 multi-thread) are fixed. Expected
-# 0/REPS hangs in both configurations — demonstrating the workload detects
-# version-specific bugs rather than being adversarial to Tokio as such (the
-# same role libevent 2.1.12 / libuv 1.44.2 play for the C ports).
+# Negative control for the two NEUTRAL configurations: a Tokio release in which
+# their bugs (#5020 current-thread, #7209 multi-thread) are fixed. Passes 0/REPS
+# in both — demonstrating those mixes detect version-specific bugs rather than
+# being adversarial to Tokio as such (the same role libevent 2.1.12 / libuv
+# 1.44.2 play for the C ports).
+#
+# It does NOT control the "localset" configuration, and hangs 3/3 there: that
+# cell targets a LocalSet defect which is unfixed upstream, so no released Tokio
+# can serve as its control. A patched build would be needed for that.
 [package]
 name = "cs-tokio-latest"
 version = "0.1.0"

@@ -1,0 +1,42 @@
+Repair for the LocalSet lost wakeup that the "localset" configuration reaches.
+
+`Shared::schedule` has three arms; two push the task and then call
+`self.waker.wake()`. The first arm is the only one that pushes with no
+notification, justified by the comment "If the current `LocalSet` is being
+polled, we don't need to wake it" -- i.e. by the assumption that the poll in
+flight will `tick()` the queue afterwards.
+
+`RunUntil::poll` breaks that assumption: it registers its waker with the set,
+polls the inner future, and on `Poll::Ready` returns immediately, skipping both
+the `tick()` that would drain the queue and the wake that would notify. A task
+woken during that final poll is left queued with nothing scheduled to look at
+it. `LocalSet::poll` has no such early return.
+
+The repair discharges the deferred obligation at the point that skipped it. It
+does not change when tasks run; it restores only the omitted notification.
+
+Applies to the extracted tokio 1.52.3 crate (`git apply -p1` from its root).
+`RunUntil::poll` and `Shared::schedule` are byte-identical in 1.52.3 and in
+1.53.1 / master 108d6d3, where this repair was verified against the full
+upstream test suite (173 suites, 1364 tests clean). Generated mechanically from
+the published 1.52.3 source.
+
+--- a/src/task/local.rs
++++ b/src/task/local.rs
+@@ -1070,6 +1070,16 @@
+             let f = me.future;
+ 
+             if let Poll::Ready(output) = f.poll(cx) {
++                // The poll above may have woken tasks belonging to this
++                // `LocalSet`. Because we are inside the guard scope opened
++                // above, those wakes took the silent arm of `Shared::schedule`,
++                // which pushes with no notification on the assumption that the
++                // poll in flight will `tick()` afterwards. We are returning
++                // instead of ticking, so discharge that assumption here: wake
++                // the set's registered waker so a remaining driver drains the
++                // queue. With no other driver this is a no-op beyond one
++                // spurious wake of the task that is completing.
++                me.local_set.context.shared.waker.wake();
+                 return Poll::Ready(output);
+             }
+ 

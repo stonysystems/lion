@@ -269,6 +269,50 @@ fn startup_init(logger: &Arc<Logger>) {
       h.await.unwrap();
     }
   });
+
+}
+
+// Targeted LocalSet readiness hand-off ("localset" configuration only).
+//
+// This is the ONE part of this file that is not neutral, and it is kept in its
+// own configuration for exactly that reason: the "current" and "multi" mixes
+// above stay bug-agnostic, so the fixed-version negative control still applies
+// to them unchanged. Only this cell is targeted.
+//
+// The shape: a local init task waits for a readiness signal; two jobs then share
+// the set's scope, one awaiting that task and one publishing the signal it waits
+// on. `run_until` takes `&self`, so a set is allowed more than one driver, and
+// the two jobs are driven together to completion.
+//
+// What it reaches: the set takes custody of its driver's waker (acceptance) and
+// a task on the set becomes runnable (assumption), but the set never invokes the
+// waker (fulfilment). The task is pushed onto the set's run queue without a
+// notification, on the assumption that the poll in progress will drain it; that
+// poll returns Ready and skips the drain. Unreported upstream; reproduced on
+// Tokio 1.52.3 (this suite's pin) and on 1.53.1 / master 108d6d3.
+fn localset_readiness_handoff(logger: &Arc<Logger>) {
+  let runtime = rt::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let lg = logger.clone();
+  runtime.block_on(async move {
+    let local = LocalSet::new();
+    let (ready_tx, ready_rx) = rt::sync::oneshot::channel::<()>();
+    let id = next_id();
+    lg.log("lifecycle", "spawn", id);
+    let init = local.spawn_local(async move {
+      ready_rx.await.unwrap();
+    });
+    let await_ready = local.run_until(async move {
+      init.await.unwrap();
+    });
+    let publish_ready = local.run_until(async move {
+      ready_tx.send(()).unwrap();
+    });
+    futures::join!(await_ready, publish_ready);
+    lg.log("lifecycle", "ready", id);
+  });
 }
 
 // The steady concurrent mix, spawned into whichever runtime is block_on'ing it.
@@ -315,6 +359,11 @@ pub fn run() {
         .build()
         .unwrap();
       runtime.block_on(general_workload(logger.clone(), deadline, true));
+    }
+    // Targeted cell: the LocalSet readiness hand-off, on its own so that the two
+    // neutral mixes keep their fixed-version negative control.
+    "localset" => {
+      localset_readiness_handoff(&logger);
     }
     // Current-thread deployment: LocalSet startup, then the steady mix.
     _ => {
